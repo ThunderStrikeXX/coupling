@@ -489,7 +489,7 @@ int main() {
     const double T_env = 280.0;             // External environmental temperature [K]
 
     // Geometric parameters
-    const int N = 5;                                                           // Number of axial nodes [-]
+    const int N = 6;                                                           // Number of axial nodes [-]
     const double L = 0.982; 			                                        // Length of the heat pipe [m]
     const double dz = L / N;                                                    // Axial discretization step [m]
     const double evaporator_length = 0.502;                                     // Evaporator length [m]
@@ -511,7 +511,7 @@ int main() {
     const double A_v_cross = M_PI * r_inner * r_inner;                                      // Vapor cross-sectional area [m^2]
 
     // Time-stepping parameters
-    const double dt = 1e-4;                         // Time step [s]
+    const double dt = 1e-5;                         // Time step [s]
     const int nSteps = 50;                         // Number of timesteps
     const double time_total = nSteps * dt;          // Total simulation time [s]
 
@@ -543,7 +543,7 @@ int main() {
     const int N_a = N - (N_e + N_c);
 
     // Representative boundary temperatures (K)
-    const double T_evap_hot = 1150.0;
+    const double T_evap_hot = 1200.0;
     const double T_cond_cold = 650.0;
 
     // Derived temperature drops
@@ -590,19 +590,19 @@ int main() {
     }
 
     // Liquid initial conditions
-    std::vector<double> u_x(N, 0.01), p_x(N, 50000.0), p_prime_x(N, 0.0);
+    std::vector<double> u_x(N, 0.01), p_x(N, vapor_sodium::P_sat(T_x_v[N - 1])), p_prime_x(N, 0.0);
 
     // Vapor inital conditions
-    std::vector<double> u_v(N, 1.0), p_v(N, 50000.0), rho_v(N, 1.0), p_prime_v(N, 0.0);
-    std::vector<double> p_old_v(N, 50000.0), T_old_v(N, 1400.0), rho_old_v(N, 0.1), u_old_v(N, 1.0);
+    std::vector<double> u_v(N, 1.0), p_v(N, vapor_sodium::P_sat(T_x_v[N - 1])), rho_v(N, 8e-3), p_prime_v(N, 0.0);
+    std::vector<double> p_old_v(N, vapor_sodium::P_sat(T_x_v[N - 1])), T_old_v(N, 1400.0), rho_old_v(N, 8e-3), u_old_v(N, 1.0);
 
     // Liquid boundary conditions (Dirichlet u at inlet, p at outlet, T at both ends)
     const double u_inlet_x = 0.01;          // Inlet velocity [m/s]
-    const double p_outlet_x = 500000.0;     // Outlet pressure [Pa]
+    double p_outlet_x = vapor_sodium::P_sat(T_x_v[N - 1]);     // Outlet pressure [Pa]
 
     // Boundary conditions for the vapor phase
     const double u_inlet_v = 10.0;      // Inlet velocity [m/s]
-    const double p_outlet_v = 50000.0;  // Outlet pressure [Pa]
+    double p_outlet_v = vapor_sodium::P_sat(T_x_v[N - 1]);  // Outlet pressure [Pa]
 
     // Turbulence constants for sodium vapor (SST model)
     const double I = 0.05;                          // Turbulence intensity (5%)
@@ -660,9 +660,9 @@ int main() {
         //
         // =============================================================================
 
-#pragma region parabolic_profiles 
+        #pragma region parabolic_profiles 
 
-// Temperature distribution coefficients (six coefficients per node)
+        // Temperature distribution coefficients (six coefficients per node)
         std::array<std::array<double, 6>, N> ABC{};
 
         for (int ix = 0; ix < N; ++ix) {
@@ -696,17 +696,23 @@ int main() {
             const double Re_v = rho_v[ix] * std::fabs(u_v[ix]) * Dh_v / mu_v;                   // Reynolds number [-]
             const double Pr_v = cp_v * mu_v / k_v_cond;                                         // Prandtl number [-]
             const double H_xm = vapor_sodium::h_conv(Re_v, Pr_v, k_v_cond, Dh_v);               // Convective heat transfer coefficient at the vapor-wick interface [W/m^2/K]
-            const double Psat = pow(10.0, 9.795 - 7.740e3 / T_x_v[ix]);                         // Saturation pressure [Pa]
-            const double dPsat_dT = Psat * (1.7822e4 / (T_x_v[ix] * T_x_v[ix]));                // Derivative of saturation pressure with respect to temperature [Pa/K]
+            const double Psat = vapor_sodium::P_sat(T_v_bulk[ix]);                                 // Saturation pressure [Pa]         
+            
+            //const double dPsat_dT = Psat * (12633.7 / (T_v_bulk[ix] * T_v_bulk[ix]) - 0.4672 / T_v_bulk[ix]);                // Derivative of saturation pressure with respect to temperature [Pa/K]
+            const double dPsat_dT = Psat * std::log(10.0) * (7740.0 / (T_v_bulk[ix] * T_v_bulk[ix]));
+            
             const double fac = (2.0 * r_inner * eps_s * beta) / (r_interface * r_interface);    // Useful factor in the coefficients calculation
             const double h_xg_x = vapor_sodium::h_vap(T_x_v[ix]);                               // Enthalpy of vaporization at T_x_v [J/kg]
 
-            const double dTsurf = T_x_v[ix] - T_x_v_old[ix];
+
+
+            // const double dTsurf = T_x_v[ix] - T_x_v_old[ix];
             const double dPg = (p_v[ix] / rho_v[ix]) * (rho_v[ix] - rho_old_v[ix])
                 + (p_v[ix] / T_v_bulk[ix]) * (T_v_bulk[ix] - T_old_v[ix]);      // Variation of the vapor pressure due to density and temperature changes [Pa]
 
             // Calculate old mass transfer rate
-            const double Gamma_xg_new = aGamma[ix] + bGamma[ix] * T_x_v[ix] + cGamma[ix] * dPg;   // Mass transfer rate at the previous iteration [kg/m3/s]
+            // const double Gamma_xg_new = aGamma[ix] + bGamma[ix] * T_x_v[ix] + cGamma[ix] * dPg;   // Mass transfer rate at the previous iteration [kg/m3/s]
+            const double Gamma_xg_new = fac * (sigma_e * Psat - sigma_c * Omega * p_v[ix]);
 
             // Coefficients for the linearization of the new mass transfer rate
             bGamma[ix] = -(Gamma_xg_new / (2.0 * T_x_v[ix])) + fac * sigma_e * dPsat_dT;
@@ -774,10 +780,14 @@ int main() {
             q_w_x_wick[ix] = liquid_sodium::k(T_w_x[ix]) * (ABC[ix][1] + 2.0 * ABC[ix][2] * r_interface);                        // Heat flux across wall-wick interface (positive if to wick)
             q_x_v_wick[ix] = liquid_sodium::k(T_x_v[ix]) * (ABC[ix][4] + 2.0 * ABC[ix][5] * r_inner);                        // Heat flux across wick-vapor interface (positive if to vapor)
             q_x_v_vapor[ix] = vapor_sodium::k(T_x_v[ix], p_v[ix]) * (ABC[ix][4] + 2.0 * ABC[ix][5] * r_inner);                        // Heat flux across wick-vapor interface (positive if to vapor)
+
+            p_outlet_v = vapor_sodium::P_sat(T_x_v[N - 1]);
+			p_outlet_x = vapor_sodium::P_sat(T_x_v[N - 1]);
+
             printf("ciao1");
         }
 
-#pragma endregion
+    #pragma endregion
 
         // =============================================================================
         //
@@ -785,9 +795,9 @@ int main() {
         //
         // =============================================================================
 
-#pragma region wall_conduction
+        #pragma region wall_conduction
 
-// Initialization of the coefficients for tridiagonal solver
+        // Initialization of the coefficients for tridiagonal solver
         std::vector<double> aTW(N, 0.0), bTW(N, 0.0), cTW(N, 0.0), dTW(N, 0.0);
 
         // Boundary conditions for tridiagonal solver (Neumann BCs)
@@ -932,6 +942,9 @@ int main() {
             iter_x++;
         }
 
+        // Enforce boundary conditions on pressure
+        p_x[N - 1] = p_outlet_x; p_x[0] = p_x[1];
+
         // === 5. Temperature calculator ===
 
         std::vector<double> aTX(N, 0.0), bTX(N, 0.0), cTX(N, 0.0), dTX(N, 0.0);
@@ -976,7 +989,7 @@ int main() {
         //
         // =============================================================================
 
-#pragma region vapor_conduction_convection
+        #pragma region vapor_conduction_convection
 
         std::cout << "Solving vapor, time:" << dt * n << "/" << time_total << ", courant number: " << u_inlet_v * dt / dz << "\n";
 
@@ -1020,6 +1033,11 @@ int main() {
                 // #pragma omp parallel
                 for (int i = 2; i < N - 2; i++) {
 
+                    // superficie interna della cella e volume cella
+                    const double A_int = 2.0 * M_PI * r_inner * dz;     // [m2]
+                    const double V_cell = M_PI * (r_inner * r_inner) * dz; // [m3]
+                    const double Sm = (m_dot_x_v[i] * A_int) / V_cell;  // sorgente volumetrica [kg/m3/s]
+
                     const double dudz_c = (u_v[i + 1] - u_v[i - 1]) / (2.0 * dz);
                     const double rhiechow = -1.0 / (8.0 * dz) * (1.0 / bUV[i + 1] - 1.0 / bUV[i - 1]) *
                         (-p_v[i - 2] + 4 * p_v[i - 1] - 6 * p_v[i] + 4 * p_v[i + 1] - p_v[i + 2]);
@@ -1031,7 +1049,8 @@ int main() {
 
                     // Continuity: d(rho)/dt + rho du/dz = 0  -> p'-equation drives divergence to zero
                     const double drho_dt = (rho_v[i] - rho_old_v[i]) / dt;
-                    dPV[i] = rho_v[i] / dt * dudz + drho_dt;
+					const double urf = 0.1; // under-relaxation factor for mass source term
+                    dPV[i] = rho_v[i] / dt * dudz + drho_dt - urf * Sm;
                 }
 
                 // Boundary conditions for p' in the evaporator region
