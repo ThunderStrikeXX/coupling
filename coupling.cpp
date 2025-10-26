@@ -489,7 +489,7 @@ int main() {
     const double T_env = 280.0;             // External environmental temperature [K]
 
     // Geometric parameters
-    const int N = 6;                                                           // Number of axial nodes [-]
+    const int N = 5;                                                            // Number of axial nodes [-]
     const double L = 0.982; 			                                        // Length of the heat pipe [m]
     const double dz = L / N;                                                    // Axial discretization step [m]
     const double evaporator_length = 0.502;                                     // Evaporator length [m]
@@ -649,6 +649,8 @@ int main() {
     // Print number of working threads
     std::cout << "Threads: " << omp_get_max_threads() << "\n";
 
+    std::vector<double> Gamma_xg_new(N, 0.0);
+
 #pragma endregion
 
     // Time-stepping loop
@@ -677,8 +679,8 @@ int main() {
 
             m_dot_x_v[ix] = beta * (vapor_sodium::P_sat(T_x_v[ix]) - p_v[ix]);                      // Mass flux from the wick to the vapor [kg/m2/s]
 
-            const double b = -(vapor_sodium::P_sat(T_x_v[ix]) - p_v[ix]) / p_v[ix];
-            //const double b = -m_dot_x_v[ix] / (p_v[ix] * std::sqrt(2.0 / (Rv * T_v_bulk[ix])));     // Ratio of the overrall speed to the most probable velocity of the vapor
+            // const double b = -(vapor_sodium::P_sat(T_x_v[ix]) - p_v[ix]) / p_v[ix];
+            const double b = std::abs(-m_dot_x_v[ix] / (p_v[ix] * std::sqrt(2.0 / (Rv * T_v_bulk[ix]))));     // Ratio of the overrall speed to the most probable velocity of the vapor
 
             // Linearization of the omega function to correct the net evaporation/condensation mass flux
             double Omega;
@@ -696,27 +698,22 @@ int main() {
             const double Re_v = rho_v[ix] * std::fabs(u_v[ix]) * Dh_v / mu_v;                   // Reynolds number [-]
             const double Pr_v = cp_v * mu_v / k_v_cond;                                         // Prandtl number [-]
             const double H_xm = vapor_sodium::h_conv(Re_v, Pr_v, k_v_cond, Dh_v);               // Convective heat transfer coefficient at the vapor-wick interface [W/m^2/K]
-            const double Psat = vapor_sodium::P_sat(T_v_bulk[ix]);                                 // Saturation pressure [Pa]         
+            const double Psat = vapor_sodium::P_sat(T_w_x[ix]);                                 // Saturation pressure [Pa]         
             
-            //const double dPsat_dT = Psat * (12633.7 / (T_v_bulk[ix] * T_v_bulk[ix]) - 0.4672 / T_v_bulk[ix]);                // Derivative of saturation pressure with respect to temperature [Pa/K]
-            const double dPsat_dT = Psat * std::log(10.0) * (7740.0 / (T_v_bulk[ix] * T_v_bulk[ix]));
+            const double dPsat_dT = Psat * std::log(10.0) * (7740.0 / (T_w_x[ix] * T_w_x[ix]));
             
             const double fac = (2.0 * r_inner * eps_s * beta) / (r_interface * r_interface);    // Useful factor in the coefficients calculation
             const double h_xg_x = vapor_sodium::h_vap(T_x_v[ix]);                               // Enthalpy of vaporization at T_x_v [J/kg]
 
-
-
-            // const double dTsurf = T_x_v[ix] - T_x_v_old[ix];
             const double dPg = (p_v[ix] / rho_v[ix]) * (rho_v[ix] - rho_old_v[ix])
                 + (p_v[ix] / T_v_bulk[ix]) * (T_v_bulk[ix] - T_old_v[ix]);      // Variation of the vapor pressure due to density and temperature changes [Pa]
 
             // Calculate old mass transfer rate
-            // const double Gamma_xg_new = aGamma[ix] + bGamma[ix] * T_x_v[ix] + cGamma[ix] * dPg;   // Mass transfer rate at the previous iteration [kg/m3/s]
-            const double Gamma_xg_new = fac * (sigma_e * Psat - sigma_c * Omega * p_v[ix]);
+            Gamma_xg_new[ix] = fac * (sigma_e * Psat - sigma_c * Omega * p_v[ix]);
 
             // Coefficients for the linearization of the new mass transfer rate
-            bGamma[ix] = -(Gamma_xg_new / (2.0 * T_x_v[ix])) + fac * sigma_e * dPsat_dT;
-            aGamma[ix] = 0.5 * Gamma_xg_new + fac * sigma_e * dPsat_dT * T_x_v[ix];
+            bGamma[ix] = -(Gamma_xg_new[ix] / (2.0 * T_x_v[ix])) + fac * sigma_e * dPsat_dT;
+            aGamma[ix] = 0.5 * Gamma_xg_new[ix] + fac * sigma_e * dPsat_dT * T_x_v[ix];
             cGamma[ix] = -fac * sigma_c * Omega;
 
             // Coefficients for the parabolic temperature profiles in wall and wick
@@ -784,7 +781,7 @@ int main() {
             p_outlet_v = vapor_sodium::P_sat(T_x_v[N - 1]);
 			p_outlet_x = vapor_sodium::P_sat(T_x_v[N - 1]);
 
-            printf("ciao1");
+            printf(" ");
         }
 
     #pragma endregion
@@ -1036,7 +1033,7 @@ int main() {
                     // superficie interna della cella e volume cella
                     const double A_int = 2.0 * M_PI * r_inner * dz;     // [m2]
                     const double V_cell = M_PI * (r_inner * r_inner) * dz; // [m3]
-                    const double Sm = (m_dot_x_v[i] * A_int) / V_cell;  // sorgente volumetrica [kg/m3/s]
+                    // const double Sm = (m_dot_x_v[i] * A_int) / V_cell;  // sorgente volumetrica [kg/m3/s]
 
                     const double dudz_c = (u_v[i + 1] - u_v[i - 1]) / (2.0 * dz);
                     const double rhiechow = -1.0 / (8.0 * dz) * (1.0 / bUV[i + 1] - 1.0 / bUV[i - 1]) *
@@ -1049,8 +1046,7 @@ int main() {
 
                     // Continuity: d(rho)/dt + rho du/dz = 0  -> p'-equation drives divergence to zero
                     const double drho_dt = (rho_v[i] - rho_old_v[i]) / dt;
-					const double urf = 0.1; // under-relaxation factor for mass source term
-                    dPV[i] = rho_v[i] / dt * dudz + drho_dt - urf * Sm;
+                    dPV[i] = rho_v[i] / dt * dudz + drho_dt - Gamma_xg_new[i];
                 }
 
                 // Boundary conditions for p' in the evaporator region
@@ -1200,7 +1196,7 @@ int main() {
             dTV[ix] = T_old_v[ix] +
                 volum_heat_source_x_v * dt / (rho_v[ix] * cp_v);
 
-            printf("ciao");
+            printf(" ");
         }
 
         // Temperature BCs: Neumann at both ends
@@ -1220,9 +1216,9 @@ int main() {
         //
         // =============================================================================
 
-#pragma region output
+        #pragma region output
 
-// Output in file
+        // Output in file
         if (true) {
 
             std::cout << "Temperature outer wall: \n";
