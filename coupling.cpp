@@ -198,6 +198,8 @@ namespace steel {
 
 #pragma region liquid_sodium_properties
 
+#pragma region liquid_sodium_properties
+
 /**
  * @brief Provides thermophysical properties for Liquid Sodium (Na).
  *
@@ -212,20 +214,37 @@ namespace liquid_sodium {
     // Critical temperature [K]
     constexpr double Tcrit = 2509.46;
 
+    // Solidification temperature, gives warning if below
+    constexpr double Tsolid = 370.87;
+
     // Density [kg/m^3]
-    double rho(double T) { return 219.0 + 275.32 * (1.0 - T / Tcrit) + 511.58 * pow(1.0 - T / Tcrit, 0.5); }
+    double rho(double T) {
+
+        if (T < Tsolid) std::cout << "Warning, temperature " << T << " is below solidification temperature!";
+        return 219.0 + 275.32 * (1.0 - T / Tcrit) + 511.58 * pow(1.0 - T / Tcrit, 0.5);
+    }
 
     // Thermal conductivity [W/(m·K)]
-    double k(double T) { return 124.67 - 0.11381 * T + 5.5226e-5 * T * T - 1.1842e-8 * T * T * T; }
+    double k(double T) {
+
+        if (T < Tsolid) std::cout << "Warning, temperature " << T << " is below solidification temperature!";
+        return 124.67 - 0.11381 * T + 5.5226e-5 * T * T - 1.1842e-8 * T * T * T;
+    }
 
     // Specific heat [J/(kg·K)]
     double cp(double T) {
-        double dT = T - 273.15;
-        return 1436.72 - 0.58 * dT + 4.627e-4 * dT * dT;
+
+        if (T < Tsolid) std::cout << "Warning, temperature " << T << " is below solidification temperature!";
+        double dXT = T - 273.15;
+        return 1436.72 - 0.58 * dXT + 4.627e-4 * dXT * dXT;
     }
 
     // Dynamic viscosity [Pa·s] using Shpilrain et al. correlation, valid for 371 K < T < 2500 K
-    double mu(double T) { return std::exp(-6.4406 - 0.3958 * std::log(T) + 556.835 / T); }
+    double mu(double T) {
+
+        if (T < Tsolid) std::cout << "Warning, temperature " << T << " is below solidification temperature!";
+        return std::exp(-6.4406 - 0.3958 * std::log(T) + 556.835 / T);
+    }
 }
 
 #pragma endregion
@@ -282,7 +301,7 @@ namespace vapor_sodium {
     }
 
     // Derivative of saturation pressure with respect to temperature [Pa/K]
-    inline double dP_sat_dT(double T) {
+    inline double dP_sat_dVT(double T) {
 
         const double val_MPa_per_K =
             (12633.73 / (T * T) - 0.4672 / T) * std::exp(11.9463 - 12633.73 / T - 0.4672 * std::log(T));
@@ -293,9 +312,9 @@ namespace vapor_sodium {
     inline double rho(double T) {
 
         const double hv = h_vap(T);                         // [J/kg]
-        const double dPdT = dP_sat_dT(T);                   // [Pa/K]
+        const double dPdVT = dP_sat_dVT(T);                   // [Pa/K]
         const double rhol = liquid_sodium::rho(T);          // [kg/m^3]
-        const double denom = hv / (T * dPdT) + 1.0 / rhol;
+        const double denom = hv / (T * dPdVT) + 1.0 / rhol;
         return 1.0 / denom;                                 // [kg/m^3]
     }
 
@@ -324,7 +343,10 @@ namespace vapor_sodium {
     }
 
     // Dynamic viscosity of sodium vapor [Pa·s]
-    inline double mu(double T) { return 6.083e-9 * T + 1.2606e-5; }
+    inline double mu(double T) {
+        return 6.083e-9 * T + 1.2606e-5;
+
+    }
 
     /**
      * @brief Calculates the Thermal Conductivity (k) of sodium vapor over an extended range.
