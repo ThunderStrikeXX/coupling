@@ -541,8 +541,9 @@ int main() {
     const double K = 1e-4;                          // Permeability [m^2]
     const double CF = 0.0;                          // Forchheimer coefficient [1/m]
 
-    // SIMPLE parameters for the wick
+    // PISO parameters for the wick
     const int tot_x_iter = 1000;                   // Maximum number of SIMPLE iterations
+    const int corr_x_iter = 2;        // PISO correctors per iteration [-]
     const double tol_x = 1e-8;                 // Convergence tolerance on the velocity field
 
     // Numerical and relaxation parameters for the wick
@@ -623,7 +624,7 @@ int main() {
 
 
     // Liquid boundary conditions (Dirichlet u at inlet, p at outlet, T at both ends)
-    const double u_inlet_x = 0.01;                              // Inlet velocity [m/s]
+    const double u_inlet_x = 0.0;                              // Inlet velocity [m/s]
     const double u_outlet_x = 0.0;                              // Outlet velocity [m/s]
     double p_outlet_x = vapor_sodium::P_sat(T_x_v[N - 1]);      // Outlet pressure [Pa]
 
@@ -675,13 +676,6 @@ int main() {
     const int rhie_chow_on_off_v = 1;                 // 0: no RC correction, 1: with RC correction
     const int SST_model_turbulence_on_off = 0;        // 0: no turbulence, 1: with turbulence
 
-    // Print results in file
-    std::ofstream fout("solution.txt");
-    fout << std::setprecision(8);
-
-    // Print number of working threads
-    std::cout << "Threads: " << omp_get_max_threads() << "\n";
-
     std::vector<double> Gamma_xg_new(N, 0.0);
 
     // The coefficient bVU is needed in momentum predictor loop and pressure correction to estimate the velocities aVT the faces using the Rhie and Chow correction
@@ -691,6 +685,13 @@ int main() {
     std::vector<double> aXU(N, 0.0), bXU(N, liquid_sodium::rho(T_init) * dz / dt + 2 * liquid_sodium::mu(T_init) / dz), cXU(N, 0.0), dXU(N, 0.0);
 
     #pragma endregion
+
+    // Print results in file
+    std::ofstream fout("solution.txt");
+    fout << std::setprecision(8);
+
+    // Print number of working threads
+    std::cout << "Threads: " << omp_get_max_threads() << "\n";
 
     // Time-stepping loop
     for (int n = 0; n < nSteps; ++n) {
@@ -742,150 +743,235 @@ int main() {
         //
         // =======================================================================
 
-        #pragma region wick_conduction_convection
+        const double max_abs_u =
+            std::abs(*std::max_element(u_x.begin(), u_x.end(),
+                [](double a, double b) { return std::abs(a) < std::abs(b); }
+            ));
+        const double min_T = *std::min_element(T_x_bulk.begin(), T_x_bulk.end());
 
-        std::cout << "Solving wick, time:" << dt * n << "/" << time_total << ", courant number: " << u_inlet_x * dt / dz << "\n";
+        std::cout << "Solving! Time elapsed:" << dt * n << "/" << time_total
+            << ", max courant number: " << max_abs_u * dt / dz
+            << ", max reynolds number: " << max_abs_u * r_interface *liquid_sodium::rho(min_T) / liquid_sodium::mu(min_T) << "\n";
 
-        // Loop on SIMPLE iterations
-        int iter_x = 0;
-        double maxErr_x = 1.0;     // This value is set to enter the loop, then it updates
+        // Backup variables
+        T_old_x = T_x_bulk;
+        p_old_x = p_x;
 
-        while (iter_x < tot_x_iter && maxErr_x > tol_x) {
+        // PISO iterations
+        int iter = 0;
+        double maxErr = 1.0;
 
-            // === 1. Momentum predictor ===
+        while (iter < tot_x_iter && maxErr > tol_x) {
 
-            std::vector<double> aUX(N, 0.0), bUX(N, 0.0), cUX(N, 0.0), dUX(N, 0.0), b_SIMPLEC(N, 0.0);;
+            // =======================================================================
+            //
+            //                      [MOMENTUM PREDICTOR]
+            //
+            // =======================================================================
 
-            // #pragma omp parallel
-            for (int ix = 1; ix < N - 1; ix++) {
+            #pragma region momentum_predictor
 
-                const double rho_node = liquid_sodium::rho(T_x_bulk[ix]);
-                const double mu_node = liquid_sodium::mu(T_x_bulk[ix]);
+            #pragma omp parallel for
+            for (int i = 1; i < N - 1; i++) {
 
-                aUX[ix] = -mu_node / (dz * dz);
-                cUX[ix] = -mu_node / (dz * dz);
-                bUX[ix] = rho_node / dt + 2 * mu_node / (dz * dz) + rho_node * (u_x[ix] - u_x[ix - 1]) / dz + mu_node / K + CF * rho_node / sqrt(K) * abs(u_x[ix]);
-                dUX[ix] = rho_node * u_x[ix] / dt - (p_x[ix + 1] - p_x[ix - 1]) / (2 * dz);
-                b_SIMPLEC[ix] = bUX[ix] - (cUX[ix] + aUX[ix]);
+                const double rho_P = liquid_sodium::rho(T_x_bulk[i]);
+                const double rho_L = liquid_sodium::rho(T_x_bulk[i - 1]);
+                const double rho_R = liquid_sodium::rho(T_x_bulk[i + 1]);
+
+                const double mu_P = liquid_sodium::mu(T_x_bulk[i]);
+                const double mu_L = liquid_sodium::mu(T_x_bulk[i - 1]);
+                const double mu_R = liquid_sodium::mu(T_x_bulk[i + 1]);
+
+                const double D_l = 0.5 * (mu_P + mu_L) / dz;
+                const double D_r = 0.5 * (mu_P + mu_R) / dz;
+
+                const double rhie_chow_l = -(1.0 / bXU[i - 1] + 1.0 / bXU[i]) / (8 * dz) * (p_padded_x[i - 2] - 3 * p_padded_x[i - 1] + 3 * p_padded_x[i] - p_padded_x[i + 1]);
+                const double rhie_chow_r = -(1.0 / bXU[i + 1] + 1.0 / bXU[i]) / (8 * dz) * (p_padded_x[i - 1] - 3 * p_padded_x[i] + 3 * p_padded_x[i + 1] - p_padded_x[i + 2]);
+
+                const double u_l_face = 0.5 * (u_x[i - 1] + u_x[i]) + rhie_chow_on_off_x * rhie_chow_l;
+                const double u_r_face = 0.5 * (u_x[i] + u_x[i + 1]) + rhie_chow_on_off_x * rhie_chow_r;
+
+                const double rho_l = (u_l_face >= 0) ? rho_L : rho_P;
+                const double rho_r = (u_r_face >= 0) ? rho_P : rho_R;
+
+                const double F_l = rho_l * u_l_face;
+                const double F_r = rho_r * u_r_face;
+
+                aXU[i] = -std::max(F_l, 0.0) - D_l;
+                cXU[i] = std::max(-F_r, 0.0) - D_r;
+                bXU[i] = (std::max(F_r, 0.0) - std::max(-F_l, 0.0)) + rho_P * dz / dt + D_l + D_r + mu_P / K * dz + CF * mu_P * dz / sqrt(K) * abs(u_x[i]);
+                dXU[i] = -0.5 * (p_x[i + 1] - p_x[i - 1]) + rho_P * u_x[i] * dz / dt + Su[i] * dz;
             }
 
-            // Velocity boundary conditions in the evaporator side
-            bUX[0] = 1;   cUX[0] = 0;   dUX[0] = u_inlet_x;
-            double b_0_RC = liquid_sodium::rho(T_x_bulk[0]) / dt + 2 * liquid_sodium::mu(T_x_bulk[0]) / (dz * dz) + liquid_sodium::mu(T_x_bulk[0]) / K + CF * liquid_sodium::rho(T_x_bulk[0]) / sqrt(K) * abs(u_x[0]);
-            b_SIMPLEC[0] = liquid_sodium::rho(T_x_bulk[0]) / dt + 2 * liquid_sodium::mu(T_x_bulk[0]) / (dz * dz) + liquid_sodium::mu(T_x_bulk[0]) / K + CF * liquid_sodium::rho(T_x_bulk[0]) / sqrt(K) * abs(u_x[0]);
+            // Velocity BC: Dirichlet at l, dirichlet at r
+            const double D_first = liquid_sodium::mu(T_x_bulk[0]) / dz;
+            const double D_last = liquid_sodium::mu(T_x_bulk[N - 1]) / dz;
 
-            // Velocity boundary conditions in the condenser side
-            aUX[N - 1] = -1;  bUX[N - 1] = 1;   dUX[N - 1] = 0;
-            double b_N_1_RC = liquid_sodium::rho(T_x_bulk[N - 1]) / dt + 3 * liquid_sodium::mu(T_x_bulk[N - 1]) / (dz * dz) + liquid_sodium::mu(T_x_bulk[N - 1]) / K + CF * liquid_sodium::rho(T_x_bulk[N - 1]) / sqrt(K) * abs(u_x[N - 1]);
-            b_SIMPLEC[N - 1] = liquid_sodium::rho(T_x_bulk[N - 1]) / dt + 3 * liquid_sodium::mu(T_x_bulk[N - 1]) / (dz * dz) + liquid_sodium::mu(T_x_bulk[N - 1]) / K + CF * liquid_sodium::rho(T_x_bulk[N - 1]) / sqrt(K) * abs(u_x[N - 1]);
+            bXU[0] = (liquid_sodium::rho(T_x_bulk[0]) * dz / dt + 2 * D_first); cXU[0] = 0.0; dXU[0] = (liquid_sodium::rho(T_x_bulk[0]) * dz / dt + 2 * D_first) * u_inlet_x;
+            aXU[N - 1] = 0.0; bXU[N - 1] = (liquid_sodium::rho(T_x_bulk[N - 1]) * dz / dt + 2 * D_last); dXU[N - 1] = (liquid_sodium::rho(T_x_bulk[N - 1]) * dz / dt + 2 * D_last) * u_outlet_x;
 
-            u_x = solveTridiagonal(aUX, bUX, cUX, dUX);
+            u_x = solveTridiagonal(aXU, bXU, cXU, dXU);
 
-            // === 2. Pressure corrector ===
+            #pragma endregion
 
-            std::vector<double> aPX(N, 0.0), bPX(N, 0.0), cPX(N, 0.0), dPX(N, 0.0);
+            for (int piso = 0; piso < corr_x_iter; piso++) {
 
-            double rhiechow = 0.0;
-            double dudz = 0.0;
+                // =======================================================================
+                //
+                //                       [CONTINUITY SATISFACTOR]
+                //
+                // =======================================================================
 
-            // #pragma omp parallel
-            for (int ix = 2; ix < N - 2; ix++) {
+                #pragma region continuity_satisfactor
 
-                rhiechow = -1 / (8 * dz) * (1 / bUX[ix + 1] - 1 / bUX[ix - 1]) *
-                    (-p_x[ix - 2] + 4 * p_x[ix - 1] - 6 * p_x[ix] + 4 * p_x[ix + 1] - p_x[ix + 2]);
+                std::vector<double> aXP(N, 0.0), bXP(N, 0.0), cXP(N, 0.0), dXP(N, 0.0);
 
-                dudz = (u_x[ix + 1] - u_x[ix - 1]) / (2 * dz)
-                    + rhiechow_coeff_x * rhiechow;
+                #pragma omp parallel for
+                for (int i = 1; i < N - 1; i++) {
 
-                aPX[ix] = 1.0 / dz / dz;
-                cPX[ix] = 1.0 / dz / dz;
-                bPX[ix] = -2.0 / dz / dz;
-                dPX[ix] = liquid_sodium::rho(T_x_bulk[ix]) / dt * dudz;
+                    const double rho_P = liquid_sodium::rho(T_x_bulk[i]);
+                    const double rho_L = liquid_sodium::rho(T_x_bulk[i - 1]);
+                    const double rho_R = liquid_sodium::rho(T_x_bulk[i + 1]);
+
+                    const double rhie_chow_l = -(1.0 / bXU[i - 1] + 1.0 / bXU[i]) / (8 * dz) * (p_padded_x[i - 2] - 3 * p_padded_x[i - 1] + 3 * p_padded_x[i] - p_padded_x[i + 1]);
+                    const double rhie_chow_r = -(1.0 / bXU[i + 1] + 1.0 / bXU[i]) / (8 * dz) * (p_padded_x[i - 1] - 3 * p_padded_x[i] + 3 * p_padded_x[i + 1] - p_padded_x[i + 2]);
+
+                    const double rho_l = 0.5 * (rho_L + rho_P);
+                    const double d_l_face = 0.5 * (1.0 / bXU[i - 1] + 1.0 / bXU[i]); // 1/Ap average on west face
+                    const double E_l = rho_l * d_l_face / dz;
+
+                    const double rho_r = 0.5 * (rho_P + rho_R);
+                    const double d_r_face = 0.5 * (1.0 / bXU[i] + 1.0 / bXU[i + 1]);  // 1/Ap average on east face
+                    const double E_r = rho_r * d_r_face / dz;
+
+                    const double u_l_star = 0.5 * (u_x[i - 1] + u_x[i]) + rhie_chow_on_off_x * rhie_chow_l;
+                    const double mdot_l_star = (u_l_star > 0.0) ? rho_L * u_l_star : rho_P * u_l_star;
+
+                    const double u_r_star = 0.5 * (u_x[i] + u_x[i + 1]) + rhie_chow_on_off_x * rhie_chow_r;
+                    const double mdot_r_star = (u_r_star > 0.0) ? rho_P * u_r_star : rho_R * u_r_star;
+
+                    const double mass_imbalance = (mdot_r_star - mdot_l_star);
+
+                    aXP[i] = -E_l;
+                    cXP[i] = -E_r;
+                    bXP[i] = E_l + E_r;          // No compressibility term
+                    dXP[i] = Sm[i] * dz - mass_imbalance;
+                }
+
+                // BCs for p': zero gradient aVT inlet and zero correction aVT outlet
+                bXP[0] = 1.0; cXP[0] = -1.0; dXP[0] = 0.0;
+                bXP[N - 1] = 1.0; aXP[N - 1] = 0.0; dXP[N - 1] = 0.0;
+
+                p_prime_x = solveTridiagonal(aXP, bXP, cXP, dXP);
+
+                #pragma endregion
+
+                // =======================================================================
+                //
+                //                        [PRESSURE CORRECTOR]
+                //
+                // =======================================================================
+
+                #pragma region pressure_corrector
+
+                for (int i = 0; i < N; i++) {
+
+                    p_x[i] += p_prime_x[i];     // Note that PISO does not require an under-relaxation factor
+                    p_storage_x[i + 1] = p_x[i];
+                }
+
+                p_storage_x[0] = p_storage_x[1];
+                p_storage_x[N + 1] = p_outlet_x;
+
+                #pragma endregion
+
+                // =======================================================================
+                //
+                //                        [VELOCITY CORRECTOR]
+                //
+                // =======================================================================
+
+                #pragma region velocity_corrector
+
+                maxErr = 0.0;
+                for (int i = 1; i < N - 1; i++) {
+
+                    double u_prev = u_x[i];
+                    u_x[i] = u_x[i] - (p_prime_x[i + 1] - p_prime_x[i - 1]) / (2.0 * dz * bXU[i]);
+
+                    maxErr = std::max(maxErr, std::fabs(u_x[i] - u_prev));
+                }
+
+                #pragma endregion
+
             }
 
-            // Pressure boundary condition in the evaporator side
-            cPX[0] = -1;   bPX[0] = 1;    dPX[0] = 0;
-
-            // Pressure boundary condition in the condenser side
-            aPX[N - 1] = 0;    bPX[N - 1] = 1;    dPX[N - 1] = 0;
-
-            // Pressure correction without Rhie and Chow for the second node
-            aPX[1] = 1.0 / (dz * dz);  cPX[1] = 1.0 / (dz * dz);  bPX[1] = -2.0 / (dz * dz);
-
-            double rhiechow1 = -1 / (8 * dz) * (1 / bUX[2] - 1 / b_0_RC) *
-                (-3 * p_x[0] + 4 * p_x[2] - p_x[3]);
-            dPX[1] = liquid_sodium::rho(T_x_bulk[1]) / dt * ((u_x[2] - u_x[0]) / (2 * dz) + rhiechow_coeff_x * rhiechow1);
-
-            // Pressure correction with Rhie and Chow for the second-to-last node
-            aPX[N - 2] = 1.0 / dz / dz;    cPX[N - 2] = 1.0 / dz / dz;    bPX[N - 2] = -2.0 / dz / dz;
-
-            double rhiechow2 = -1 / (8 * dz) * (1 / b_N_1_RC - 1 / bUX[N - 3]) *
-                (-p_x[N - 4] + 4 * p_x[N - 3] - 6 * p_x[N - 2]);
-            dPX[N - 2] = liquid_sodium::rho(T_x_bulk[N - 2]) / dt * ((u_x[N - 1] - u_x[N - 3]) / (2 * dz) + rhiechow_coeff_x * rhiechow2);
-
-            p_prime_x = solveTridiagonal(aPX, bPX, cPX, dPX);
-
-            // === 3. Pressure updater ===
-
-            for (int ix = 0; ix < N; ix++) p_x[ix] += p_x_relax * p_prime_x[ix]; // With relaxing factor
-
-            // Error on the velocity field
-            maxErr_x = 0.0;
-
-            // === 4. Velocity updater ===
-
-            for (int ix = 1; ix < N - 1; ix++) {
-
-                double u_old = u_x[ix];
-                u_x[ix] = u_x[ix] - v_x_relax / b_SIMPLEC[ix] * (p_prime_x[ix + 1] - p_prime_x[ix - 1]) / (2 * dz);
-
-                maxErr_x = std::max(maxErr_x, std::fabs(u_x[ix] - u_old));
-            }
-
-            // Boundary condition, zero gradient on right side velocity
-            u_x[N - 1] = u_x[N - 2];
-
-            iter_x++;
+            iter++;
         }
 
-        // Enforce boundary conditions on pressure
-        p_x[N - 1] = p_outlet_x; p_x[0] = p_x[1];
+        // =======================================================================
+        //
+        //                        [TEMPERATURE CALCULATOR]
+        //
+        // =======================================================================
 
-        // === 5. Temperature calculator ===
+        #pragma region temperature_calculator
 
-        std::vector<double> aTX(N, 0.0), bTX(N, 0.0), cTX(N, 0.0), dTX(N, 0.0);
+        std::vector<double> aXT(N, 0.0), bXT(N, 0.0), cXT(N, 0.0), dXT(N, 0.0);
 
-        // #pragma omp parallel
-        for (int ix = 1; ix < N - 1; ix++) {
+        #pragma omp parallel for
+        for (int i = 1; i < N - 1; i++) {
 
-            const double rho_x = liquid_sodium::rho(T_x_bulk[ix]);
-            const double cp_x = liquid_sodium::cp(T_x_bulk[ix]);
-            const double k_x = liquid_sodium::k(T_x_bulk[ix]);
-            const double k_w = steel::k(T_w_bulk[ix]);
-            const double alpha_x = k_x / (rho_x * cp_x);
+            const double rho_P = liquid_sodium::rho(T_x_bulk[i]);
+            const double rho_L = liquid_sodium::rho(T_x_bulk[i - 1]);
+            const double rho_R = liquid_sodium::rho(T_x_bulk[i + 1]);
 
-            // Volumetric heat source due to heat flux at the wall-wick interface [W/m^3]
-            double volum_heat_source_w_x = q_w_x_wick[ix] * 2 * r_interface / (r_interface * r_interface - r_inner * r_inner);
+            const double k_cond_P = liquid_sodium::k(T_x_bulk[i]);
+            const double k_cond_L = liquid_sodium::k(T_x_bulk[i - 1]);
+            const double k_cond_R = liquid_sodium::k(T_x_bulk[i + 1]);
 
-            // Volumetric heat source due to heat flux at the wick-vapor interface [W/m^3]
-            double volum_heat_source_x_v = q_x_v_wick[ix] * 2 * r_inner / (r_interface * r_interface - r_inner * r_inner);
+            const double cp_P = liquid_sodium::cp(T_x_bulk[i]);
+            const double cp_L = liquid_sodium::cp(T_x_bulk[i - 1]);
+            const double cp_R = liquid_sodium::cp(T_x_bulk[i + 1]);
 
-            // Fully implicit discretization 
-            aTX[ix] = -alpha_x * dt / (dz * dz) - u_x[ix] * dt / dz;
-            cTX[ix] = -alpha_x * dt / (dz * dz);
-            bTX[ix] = 1 + u_x[ix] * dt / dz + 2 * dt * alpha_x / (dz * dz);
-            dTX[ix] = T_x_bulk[ix] +
-                volum_heat_source_w_x * dt / (rho_x * cp_x) -
-                volum_heat_source_x_v * dt / (rho_x * cp_x);
+            const double rhoCp_dzdt = rho_P * cp_P * dz / dt;
+
+            // Linear interpolation diffusion coefficient
+            const double D_l = 0.5 * (k_cond_P + k_cond_L) / dz;
+            const double D_r = 0.5 * (k_cond_P + k_cond_R) / dz;
+
+            const double rhie_chow_l = -(1.0 / bXU[i - 1] + 1.0 / bXU[i]) / (8 * dz) * (p_padded_x[i - 2] - 3 * p_padded_x[i - 1] + 3 * p_padded_x[i] - p_padded_x[i + 1]);
+            const double rhie_chow_r = -(1.0 / bXU[i + 1] + 1.0 / bXU[i]) / (8 * dz) * (p_padded_x[i - 1] - 3 * p_padded_x[i] + 3 * p_padded_x[i + 1] - p_padded_x[i + 2]);
+
+            const double u_l_face = 0.5 * (u_x[i - 1] + u_x[i]) + rhie_chow_on_off_x * rhie_chow_l;
+            const double u_r_face = 0.5 * (u_x[i] + u_x[i + 1]) + rhie_chow_on_off_x * rhie_chow_r;
+
+            // Upwind density
+            const double rho_l = (u_l_face >= 0) ? rho_L : rho_P;
+            const double rho_r = (u_r_face >= 0) ? rho_P : rho_R;
+
+            // Upwind specific heat
+            const double cp_l = (u_l_face >= 0) ? cp_L : cp_P;
+            const double cp_r = (u_r_face >= 0) ? cp_P : cp_R;
+
+            const double Fl = rho_l * u_l_face;
+            const double Fr = rho_r * u_r_face;
+
+            const double C_l = (Fl * cp_l);
+            const double C_r = (Fr * cp_r);
+
+            aXT[i] = -D_l - std::max(C_l, 0.0);
+            cXT[i] = -D_r + std::max(-C_r, 0.0);
+            bXT[i] = (std::max(C_r, 0.0) - std::max(-C_l, 0.0)) + D_l + D_r + rhoCp_dzdt;
+
+            dXT[i] = rhoCp_dzdt * T_old_x[i] + St[i] * dz;
         }
 
-        // Boundary conditions at the evaporator side (Neumann BC)
-        bTX[0] = 1.0;    cTX[0] = -1.0;   dTX[0] = 0.0;
+        // Temperature BCs
+        bXT[0] = 1.0; cXT[0] = -1.0; dXT[0] = 0.0;
+        aXT[N - 1] = -1.0; bXT[N - 1] = 1.0; dXT[N - 1] = 0.0;
 
-        // Boundary conditions at the condenser side (Neumann BC)
-        aTX[N - 1] = -1.0;   bTX[N - 1] = 1.0;    dTX[N - 1] = 0.0;
-
-        T_x_bulk = solveTridiagonal(aTX, bTX, cTX, dTX);
+        T_x_bulk = solveTridiagonal(aXT, bXT, cXT, dXT);
 
         #pragma endregion
 
