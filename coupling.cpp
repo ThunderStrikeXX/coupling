@@ -984,7 +984,7 @@ int main() {
         /// Evaluates minimum value of the wick temperature
         const double min_T_wick = *std::min_element(T_x_bulk.begin(), T_x_bulk.end());
 
-        std::cout << "Solving! Time elapsed:" << dt * n << "/" << time_total
+        std::cout << "Solving wick! Time elapsed:" << dt * n << "/" << time_total
             << ", max courant number: " << max_abs_u * dt / dz
             << ", max reynolds number: " << max_abs_u * r_interface *liquid_sodium::rho(min_T_wick) / liquid_sodium::mu(min_T_wick) << "\n";
 
@@ -1473,30 +1473,44 @@ int main() {
 
         #pragma region vapor
 
-        const double max_u = *std::max_element(u_v.begin(), u_v.end());
+        /// Evaluates maximum absolute value of the vapor velocity
+        const double max_abs_u =
+            std::abs(*std::max_element(u_x.begin(), u_x.end(),
+                [](double a, double b) { return std::abs(a) < std::abs(b); }
+            ));
+
+        /// Evaluates maximum density value of the vapor
         const double max_rho = *std::max_element(rho_v.begin(), rho_v.end());
+
+        /// Evaluates minimum temperature value of the vapor
         const double min_T = *std::min_element(T_v_bulk.begin(), T_v_bulk.end());
 
-        std::cout << "Solving! Time elapsed:" << dt * n << "/" << time_total
-            << ", max courant number: " << max_u * dt / dz
-            << ", max reynolds number: " << max_u * 2 * r_inner * max_rho / vapor_sodium::mu(min_T) << "\n";
+        std::cout << "Solving wick! Time elapsed:" << dt * n << "/" << time_total
+            << ", max courant number: " << max_abs_u * dt / dz
+            << ", max reynolds number: " << max_abs_u * r_interface * vapor_sodium::rho(min_T_wick) / vapor_sodium::mu(min_T_wick) << "\n";
 
-        // Backup variables
+        /// Backup old variables
         T_old_v = T_v_bulk;
         rho_old_v = rho_v;
         p_old_v = p_v;
 
-        // Wick vapor coupling: the pressure in the last cell of the domain is considered the saturation pressure at the temperature of the interface
+        /**
+          * Wick vapor coupling hypotheses: the pressure in the last cell of the domain is considered 
+          * the saturation pressure at the temperature of the interface.
+          */
         p_v[N - 1] = p_outlet_v;
 
-        // Outer iterations
+        /// Outer iterations variables reset
         double u_error_v = 1.0;
         int outer_iter_v = 0;
 
-        // Inner iterations
+        /// Inner iterations variables initialization
         double p_error_v;
         int inner_iter_v;
 
+        /**
+          * @brief Outer iterations. Stop when maximum number of iterations or velocity stops updating.
+          */
         while (outer_iter_v < tot_outer_iter_v && u_error_v > outer_tol_v) {
 
             // =======================================================================
@@ -1510,37 +1524,43 @@ int main() {
             #pragma omp parallel
             for (int i = 1; i < N - 1; i++) {
 
-                const double rho_P = rho_v[i];
-                const double rho_L = rho_v[i - 1];
-                const double rho_R = rho_v[i + 1];
+                const double rho_P = rho_v[i];                              ///< Density [kg/m3] of the central cell
+                const double rho_L = rho_v[i - 1];                          ///< Density [kg/m3] of the left cell
+                const double rho_R = rho_v[i + 1];                          ///< Density [kg/m3] of the right cell
 
-                const double mu_P = vapor_sodium::mu(T_v_bulk[i]);
-                const double mu_L = vapor_sodium::mu(T_v_bulk[i - 1]);
-                const double mu_R = vapor_sodium::mu(T_v_bulk[i + 1]);
+                const double mu_P = vapor_sodium::mu(T_v_bulk[i]);          ///< Dynamic viscosity [kg/(m s)] of the central cell
+                const double mu_L = vapor_sodium::mu(T_v_bulk[i - 1]);      ///< Dynamic viscosity [kg/(m s)] of the left cell
+                const double mu_R = vapor_sodium::mu(T_v_bulk[i + 1]);      ///< Dynamic viscosity [kg/(m s)] of the right cell
 
-                const double D_l = 4.0 / 3.0 * 0.5 * (mu_P + mu_L) / dz;
-                const double D_r = 4.0 / 3.0 * 0.5 * (mu_P + mu_R) / dz;
+                const double D_l = 4.0 / 3.0 * 0.5 * (mu_P + mu_L) / dz;    ///< Diffusion coefficient [kg/(m2 s)] of the left face (average)
+                const double D_r = 4.0 / 3.0 * 0.5 * (mu_P + mu_R) / dz;    ///< Diffusion coefficient [kg/(m2 s)] of the right face (average)
 
+                /// RC correction for the left face velocity
                 const double rhie_chow_l = -(1.0 / bVU[i - 1] + 1.0 / bVU[i]) / (8 * dz) * (p_padded_v[i - 2] - 3 * p_padded_v[i - 1] + 3 * p_padded_v[i] - p_padded_v[i + 1]);
+                
+                /// RC correction for the right face velocity
                 const double rhie_chow_r = -(1.0 / bVU[i + 1] + 1.0 / bVU[i]) / (8 * dz) * (p_padded_v[i - 1] - 3 * p_padded_v[i] + 3 * p_padded_v[i + 1] - p_padded_v[i + 2]);
 
+                /// Left face velocity [m/s] (average + RC correction)
                 const double u_l_face = 0.5 * (u_v[i - 1] + u_v[i]) + rhie_chow_on_off_v * rhie_chow_l;
+
+                /// Right face velocity [m/s] (average + RC correction)
                 const double u_r_face = 0.5 * (u_v[i] + u_v[i + 1]) + rhie_chow_on_off_v * rhie_chow_r;
 
-                const double rho_l = (u_l_face >= 0) ? rho_L : rho_P;
-                const double rho_r = (u_r_face >= 0) ? rho_P : rho_R;
+                const double rho_l = (u_l_face >= 0) ? rho_L : rho_P;       ///< Density [kg/m3] of the left face (upwind)
+                const double rho_r = (u_r_face >= 0) ? rho_P : rho_R;       ///< Density [kg/m3] of the right face (upwind)
 
-                const double F_l = rho_l * u_l_face;
-                const double F_r = rho_r * u_r_face;
+                const double F_l = rho_l * u_l_face;                        ///< Mass flux [kg/(m2 s)] of the left face (upwind)
+                const double F_r = rho_r * u_r_face;                        ///< Mass flux [kg/(m2 s)] of the right face (upwind)
 
-                const double Re = u_v[i] * (2 * r_inner) * rho_P / mu_P;
+                const double Re = u_v[i] * (2 * r_inner) * rho_P / mu_P;    ///< Reynolds number [-]
 
-                const double f = (Re < 1187.4) ? 64 / Re : 0.3164 * std::pow(Re, -0.25);
-                const double F = 0.25 * f * rho_P * std::abs(u_v[i]) / r_inner;
+                const double f = (Re < 1187.4) ? 64 / Re : 0.3164 * std::pow(Re, -0.25);    ///< Friction factor [-] (according to THROHPUT)
+                const double F = 0.25 * f * rho_P * std::abs(u_v[i]) / r_inner;             ///< Friction force [kg / (m3 s)]
 
                 aVU[i] = -std::max(F_l, 0.0) - D_l;
                 cVU[i] = -std::max(-F_r, 0.0) - D_r;
-                bVU[i] = (std::max(F_r, 0.0) + std::max(-F_l, 0.0)) + rho_P * dz / dt + D_l + D_r + F;
+                bVU[i] = (std::max(F_r, 0.0) + std::max(-F_l, 0.0)) + rho_P * dz / dt + D_l + D_r + F * dz;
                 dVU[i] = -0.5 * (p_v[i + 1] - p_v[i - 1]) + rho_P * u_v[i] * dz / dt /* + Su[i] * dz */;
 
                 printf("");
