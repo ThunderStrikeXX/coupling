@@ -830,6 +830,7 @@ int main() {
     std::vector<double> q_x_v_vapor(N, 0.0);     ///< Heat flux [W/m^2] across wick-vapor interface in the vapor region (positive if directed to vapor)
     
     std::vector<double> Q_w(N, 0.0);             ///< Wall heat source [W / m^3]
+    std::vector<double> Q_x(N, 0.0);             ///< Wick heat source [W / m^3]
 
     // Models
     const int rhie_chow_on_off_x = 1;                 ///< 0: no wick RC correction, 1: wick with RC correction
@@ -1089,8 +1090,15 @@ int main() {
 
                 #pragma region continuity_satisfactor
 
-                std::vector<double> aXP(N, 0.0), bXP(N, 0.0), cXP(N, 0.0), dXP(N, 0.0);
+                /// Tridiagonal coefficients for the pressure correction
+                std::vector<double> aXP(N, 0.0), 
+                                        bXP(N, 0.0), 
+                                        cXP(N, 0.0), 
+                                        dXP(N, 0.0);
 
+                /**
+                 * @brief Calculates the coefficients for the tridiagonal system of the pressure correction p'
+                 */
                 #pragma omp parallel for
                 for (int i = 1; i < N - 1; i++) {
 
@@ -1107,11 +1115,11 @@ int main() {
 
                     const double rho_l = 0.5 * (rho_L + rho_P);                         ///< Density [kg/m3] on the left face
                     const double d_l_face = 0.5 * (1.0 / bXU[i - 1] + 1.0 / bXU[i]);    ///< 1/Ap [(m2 s)/kg] average on left face
-                    const double E_l = rho_l * d_l_face;                           ///< Diffusion coefficient [s/m2] on the left face
+                    const double E_l = rho_l * d_l_face;                                ///< Diffusion coefficient [s/m] on the left face
 
                     const double rho_r = 0.5 * (rho_P + rho_R);                         ///< Density [kg/m3] on the right face
                     const double d_r_face = 0.5 * (1.0 / bXU[i] + 1.0 / bXU[i + 1]);    ///< 1/Ap [(m2 s)/kg] average on right face
-                    const double E_r = rho_r * d_r_face;                           ///< Diffusion coefficient [s/m2] on the right face
+                    const double E_r = rho_r * d_r_face;                                ///< Diffusion coefficient [s/m] on the right face
 
                     
                     const double u_l_star = 0.5 * (u_x[i - 1] + u_x[i]) + 
@@ -1123,17 +1131,23 @@ int main() {
                     const double mdot_r_star = (u_r_star > 0.0) ? rho_P * u_r_star : rho_R * u_r_star;  ///< Right face mass flux [kg/(m^2 s)] (upwind discretization)
 
                     const double mass_imbalance = (mdot_r_star - mdot_l_star);  ///< Mass difference of the fluxes across faces [kg/(m^2 s)]
-                    const double mass_flux = Gamma_xg_new[i] * dz;              /// Mass flux [kg/(m^2 s)] due to external source
+                    const double mass_flux = Gamma_xg_new[i] * dz;              ///< Mass flux [kg/(m^2 s)] due to external source (positive if out of the wick)
 
-                    aXP[i] = -E_l;
-                    cXP[i] = -E_r;
-                    bXP[i] = E_l + E_r;        
-                    dXP[i] = -mass_flux - mass_imbalance;
+                    aXP[i] = -E_l;                              ///< [kg/(m^2 s)]
+                    cXP[i] = -E_r;                              ///< [kg/(m^2 s)]
+                    bXP[i] = E_l + E_r;                         ///< [kg/(m^2 s)]
+                    dXP[i] = -mass_flux - mass_imbalance;       ///< [kg/(m^2 s)]
                 }
 
-                // BCs for p': zero gradient aVT inlet and zero correction aVT outlet
-                bXP[0] = 1.0; cXP[0] = -1.0; dXP[0] = 0.0;
-                bXP[N - 1] = 1.0; aXP[N - 1] = 0.0; dXP[N - 1] = 0.0;
+                /// BCs for the correction of pressure: zero gradient at first node
+                bXP[0] = 1.0; 
+                cXP[0] = -1.0; 
+                dXP[0] = 0.0;
+
+                /// BCs for the correction of pressure: zero gradient at first node
+                aXP[N - 1] = 0.0;
+                bXP[N - 1] = 1.0; 
+                dXP[N - 1] = 0.0;
 
                 p_prime_x = solveTridiagonal(aXP, bXP, cXP, dXP);
 
@@ -1149,11 +1163,14 @@ int main() {
 
                 #pragma region pressure_corrector
 
+                /**
+                  * @brief Corrects the pressure with p'
+                  */
                 p_error_x = 0.0;
                 for (int i = 0; i < N; i++) {
 
                     double p_prev_x = p_x[i];
-                    p_x[i] += p_prime_x[i];     // Note that PISO does not require an under-relaxation factor
+                    p_x[i] += p_prime_x[i];         // Note that PISO does not require an under-relaxation factor
                     p_storage_x[i + 1] = p_x[i];
 
                     p_error_x = std::max(p_error_x, std::fabs(p_x[i] - p_prev_x));
@@ -1172,6 +1189,9 @@ int main() {
 
                 #pragma region velocity_corrector
 
+                /**
+                  * @brief Corrects the velocity with p'
+                  */
                 u_error_x = 0.0;
                 for (int i = 1; i < N - 1; i++) {
 
@@ -1203,67 +1223,85 @@ int main() {
 
         printf("");
 
-        std::vector<double> aXT(N, 0.0), bXT(N, 0.0), cXT(N, 0.0), dXT(N, 0.0);
+        /// Tridiagonal coefficients for the wick temperature
+        std::vector<double> aXT(N, 0.0), 
+                                bXT(N, 0.0), 
+                                cXT(N, 0.0), 
+                                dXT(N, 0.0);
 
+        /**
+         * @brief Calculates the coefficients for the tridiagonal system of the wick temperature T
+         */
         #pragma omp parallel for
         for (int i = 1; i < N - 1; i++) {
 
-            const double rho_P = liquid_sodium::rho(T_x_bulk[i]);
-            const double rho_L = liquid_sodium::rho(T_x_bulk[i - 1]);
-            const double rho_R = liquid_sodium::rho(T_x_bulk[i + 1]);
+            const double rho_P = liquid_sodium::rho(T_x_bulk[i]);       ///< Density [kg/m3] of the central cell
+            const double rho_L = liquid_sodium::rho(T_x_bulk[i - 1]);   ///< Density [kg/m3]of the left cell
+            const double rho_R = liquid_sodium::rho(T_x_bulk[i + 1]);   ///< Density [kg/m3]of the right cell
 
-            const double k_cond_P = liquid_sodium::k(T_x_bulk[i]);
-            const double k_cond_L = liquid_sodium::k(T_x_bulk[i - 1]);
-            const double k_cond_R = liquid_sodium::k(T_x_bulk[i + 1]);
+            const double k_cond_P = liquid_sodium::k(T_x_bulk[i]);      ///< Thermal conductivity [W/(m*K)] of the central cell
+            const double k_cond_L = liquid_sodium::k(T_x_bulk[i - 1]);  ///< Thermal conductivity [W/(m*K)] of the left cell
+            const double k_cond_R = liquid_sodium::k(T_x_bulk[i + 1]);  ///< Thermal conductivity [W/(m*K)] of the right cell
 
-            const double cp_P = liquid_sodium::cp(T_x_bulk[i]);
-            const double cp_L = liquid_sodium::cp(T_x_bulk[i - 1]);
-            const double cp_R = liquid_sodium::cp(T_x_bulk[i + 1]);
+            const double cp_P = liquid_sodium::cp(T_x_bulk[i]);         ///< S. h. at constant pressure [J/(kg K)] of the central cell
+            const double cp_L = liquid_sodium::cp(T_x_bulk[i - 1]);     ///< S. h. at constant pressure [J/(kg K)] of the left cell
+            const double cp_R = liquid_sodium::cp(T_x_bulk[i + 1]);     ///< S. h. at constant pressure [J/(kg K)] of the right cell
 
-            const double rhoCp_dzdt = rho_P * cp_P * dz / dt;
+            const double rhoCp_dzdt = rho_P * cp_P * dz / dt;           ///< Useful constant [W/(m^2 K)]
 
-            // Linear interpolation diffusion coefficient
-            const double D_l = 0.5 * (k_cond_P + k_cond_L) / dz;
-            const double D_r = 0.5 * (k_cond_P + k_cond_R) / dz;
+            const double D_l = 0.5 * (k_cond_P + k_cond_L) / dz;        ///< Diffusion coefficient [W/(m^2 K)] of the left face (average)
+            const double D_r = 0.5 * (k_cond_P + k_cond_R) / dz;        ///< Diffusion coefficient [W/(m^2 K)] of the right face (average)
 
+            /// RC correction for the left face velocity
             const double rhie_chow_l = -(1.0 / bXU[i - 1] + 1.0 / bXU[i]) / (8 * dz) * (p_padded_x[i - 2] - 3 * p_padded_x[i - 1] + 3 * p_padded_x[i] - p_padded_x[i + 1]);
+
+            /// RC correction for the right face velocity 
             const double rhie_chow_r = -(1.0 / bXU[i + 1] + 1.0 / bXU[i]) / (8 * dz) * (p_padded_x[i - 1] - 3 * p_padded_x[i] + 3 * p_padded_x[i + 1] - p_padded_x[i + 2]);
 
+            /// Left face velocity [m/s] (average + RC correction)
             const double u_l_face = 0.5 * (u_x[i - 1] + u_x[i]) + rhie_chow_on_off_x * rhie_chow_l;
+
+            /// Right face velocity [m/s] (average + RC correction)
             const double u_r_face = 0.5 * (u_x[i] + u_x[i + 1]) + rhie_chow_on_off_x * rhie_chow_r;
 
-            // Upwind density
-            const double rho_l = (u_l_face >= 0) ? rho_L : rho_P;
-            const double rho_r = (u_r_face >= 0) ? rho_P : rho_R;
+            const double rho_l = (u_l_face >= 0) ? rho_L : rho_P;       ///< Density [kg/m3] of the left face (upwind)
+            const double rho_r = (u_r_face >= 0) ? rho_P : rho_R;       ///< Density [kg/m3] of the right face (upwind)
 
             // Upwind specific heat
-            const double cp_l = (u_l_face >= 0) ? cp_L : cp_P;
-            const double cp_r = (u_r_face >= 0) ? cp_P : cp_R;
+            const double cp_l = (u_l_face >= 0) ? cp_L : cp_P;          ///< S. h. at constant pressure [J/(kg K)] of the left face (upwind)
+            const double cp_r = (u_r_face >= 0) ? cp_P : cp_R;          ///< S. h. at constant pressure [J/(kg K)] of the right face (upwind)
 
-            const double Fl = rho_l * u_l_face;
-            const double Fr = rho_r * u_r_face;
+            const double Fl = rho_l * u_l_face;                         ///< Mass flux [kg/(m2 s)] of the left face (upwind)
+            const double Fr = rho_r * u_r_face;                         ///< Mass flux [kg/(m2 s)] of the left face (upwind)
 
-            const double C_l = (Fl * cp_l);
-            const double C_r = (Fr * cp_r);
+            const double C_l = (Fl * cp_l);                             ///< Mass flux [W/(m^2 K)] of the left face (upwind)
+            const double C_r = (Fr * cp_r);                             ///< Mass flux [W/(m^2 K)] of the left face (upwind)
 
-            // Volumetric heat source due to heat flux at the wall-wick interface [W/m^3]
+            /// Volumetric heat source due to heat flux at the wall-wick interface [W/m^3]
             double volum_heat_source_w_x = q_w_x_wick[i] * 2 * r_interface / (r_interface * r_interface - r_inner * r_inner);
 
-            // Volumetric heat source due to heat flux at the wick-vapor interface [W/m^3]
+            /// Volumetric heat source due to heat flux at the wick-vapor interface [W/m^3]
             double volum_heat_source_x_v = q_x_v_wick[i] * 2 * r_inner / (r_interface * r_interface - r_inner * r_inner);
 
-            aXT[i] = -D_l - std::max(C_l, 0.0);
-            cXT[i] = -D_r - std::max(-C_r, 0.0);
-            bXT[i] = (std::max(C_r, 0.0) + std::max(-C_l, 0.0)) + D_l + D_r + rhoCp_dzdt;
+            Q_x[i] = volum_heat_source_w_x - volum_heat_source_x_v;     ///< Wick volumetric heat source [W/m^3]
 
-            dXT[i] = rhoCp_dzdt * T_old_x[i] + 
-                volum_heat_source_w_x * dz -
-                volum_heat_source_x_v * dz;
+            aXT[i] = -D_l - std::max(C_l, 0.0);                                                 ///< [W/(m^2 K)]
+            cXT[i] = -D_r - std::max(-C_r, 0.0);                                                ///< [W/(m^2 K)]
+            bXT[i] = (std::max(C_r, 0.0) + std::max(-C_l, 0.0)) + D_l + D_r + rhoCp_dzdt;       ///< [W/(m^2 K)]
+
+            dXT[i] = rhoCp_dzdt * T_old_x[i] +  
+                        Q_x[i] * dz;                                                            ///< [W/(m^2 K)]
         }
 
-        // Temperature BCs
-        bXT[0] = 1.0; cXT[0] = -1.0; dXT[0] = 0.0;
-        aXT[N - 1] = -1.0; bXT[N - 1] = 1.0; dXT[N - 1] = 0.0;
+        /// Temperature BCs: zero gradient on the first node
+        bXT[0] = 1.0; 
+        cXT[0] = -1.0; 
+        dXT[0] = 0.0;
+
+        /// Temperature BCs: zero gradient on the last node
+        aXT[N - 1] = -1.0; 
+        bXT[N - 1] = 1.0; 
+        dXT[N - 1] = 0.0;
 
         T_x_bulk = solveTridiagonal(aXT, bXT, cXT, dXT);
 
