@@ -8,6 +8,7 @@
 #include <array>
 #include <algorithm>
 #include <cstddef>
+#include <filesystem>
 
 // =======================================================================
 //
@@ -793,6 +794,10 @@ int main() {
     const double outer_tol_v = 1e-4;                ///< Tolerance for the inner iterations [-]
     const double inner_tol_v = 1e-2;                ///< Tolerance for the inner iterations [-]
 
+    // Mesh z positions
+    std::vector<double> mesh(N, 0.0);
+    for (int i = 0; i < N; ++i) mesh[i] = i * dz;
+
     // Node partition
     const int N_e = static_cast<int>(std::floor(evaporator_length / dz));   ///< Number of nodes of the evaporator region [-]
     const int N_c = static_cast<int>(std::ceil(condenser_length / dz));     ///< Number of nodes of the condenser region [-]
@@ -915,25 +920,32 @@ int main() {
         cVU(N, 0.0),                                                                    ///< Upper tridiagonal coefficient for vapor velocity
         dVU(N, 0.0);                                                                    ///< Known vector for vapor velocity
 
+    // Create result folder
+    std::filesystem::create_directories("results");
+
     // Print results in file
-    std::ofstream v_velocity_output("v_velocity_output.txt", std::ios::app);
-    std::ofstream v_pressure_output("v_pressure_output.txt", std::ios::app);
-    std::ofstream v_bulk_temperature_output("v_bulk_temperature_output.txt", std::ios::app);
+    std::ofstream mesh_io("mesh.txt", std::ios::trunc);
 
-    std::ofstream x_velocity_output("x_velocity_output.txt", std::ios::app);
-    std::ofstream x_pressure_output("x_pressure_output.txt", std::ios::app);
-    std::ofstream x_bulk_temperature_output("x_bulk_temperature_output.txt", std::ios::app);
+    std::ofstream v_velocity_output("results/vapor_velocity.txt", std::ios::trunc);
+    std::ofstream v_pressure_output("results/vapor_pressure.txt", std::ios::trunc);
+    std::ofstream v_bulk_temperature_output("results/vapor_bulk_temperature.txt", std::ios::trunc);
 
-    std::ofstream x_v_temperature_output("x_v_temperature_output.txt", std::ios::app);
-    std::ofstream w_x_temperature_output("w_x_temperature_output.txt", std::ios::app);
-    std::ofstream o_w_temperature_output("o_w_temperature_output.txt", std::ios::app);
-    std::ofstream w_bulk_temperature_output("w_bulk_temperature_output.txt", std::ios::app);
+    std::ofstream x_velocity_output("results/wick_velocity.txt", std::ios::trunc);
+    std::ofstream x_pressure_output("results/wick_pressure.txt", std::ios::trunc);
+    std::ofstream x_bulk_temperature_output("results/wick_bulk_temperature.txt", std::ios::trunc);
 
-    std::ofstream x_v_mass_flux_output("x_v_mass_flux_output.txt", std::ios::app);
+    std::ofstream x_v_temperature_output("results/wick_vapor_interface_temperature.txt", std::ios::trunc);
+    std::ofstream w_x_temperature_output("results/wall_wick_interface_temperature.txt", std::ios::trunc);
+    std::ofstream o_w_temperature_output("results/outer_wall_temperature.txt", std::ios::trunc);
+    std::ofstream w_bulk_temperature_output("results/wall_bulk_temperature.txt", std::ios::trunc);
 
-    std::ofstream o_w_heat_flux_output("o_w_heat_flux_output.txt", std::ios::app);
-    std::ofstream w_x_heat_flux_output("w_x_heat_flux_output.txt", std::ios::app);
-    std::ofstream x_v_heat_flux_output("x_v_heat_flux_output.txt", std::ios::app);
+    std::ofstream x_v_mass_flux_output("results/wick_vapor_mass_source.txt", std::ios::trunc);
+
+    std::ofstream o_w_heat_flux_output("results/outer_wall_heat_flux.txt", std::ios::trunc);
+    std::ofstream w_x_heat_flux_output("results/wall_wick_heat_flux.txt", std::ios::trunc);
+    std::ofstream x_v_heat_flux_output("results/wick_vapor_heat_flux.txt", std::ios::trunc);
+
+    mesh_io << std::setprecision(8);
 
     v_velocity_output << std::setprecision(8);
     v_pressure_output << std::setprecision(8);
@@ -2126,25 +2138,51 @@ int main() {
         }
 
         for (int i = 0; i < N; ++i) {
-            v_velocity_output << u_v[i] << "\n";
-            v_pressure_output << p_v[i] << "\n";
-            v_bulk_temperature_output << T_v_bulk[i] << "\n";
 
-            x_velocity_output << u_x[i] << "\n";
-            x_pressure_output << p_x[i] << "\n";
-            x_bulk_temperature_output << T_x_bulk[i] << "\n";
+            mesh_io << mesh[i] << " ";
 
-            x_v_temperature_output << T_x_v[i] << "\n";
-            w_x_temperature_output << T_w_x[i] << "\n";
-            o_w_temperature_output << T_o_w[i] << "\n";
-            w_bulk_temperature_output << T_w_bulk[i] << "\n";
+            v_velocity_output << u_v[i] << " ";
+            v_pressure_output << p_v[i] << " ";
+            v_bulk_temperature_output << T_v_bulk[i] << " ";
 
-            x_v_mass_flux_output << Gamma_xv[i] << "\n";
+            x_velocity_output << u_x[i] << " ";
+            x_pressure_output << p_x[i] << " ";
+            x_bulk_temperature_output << T_x_bulk[i] << " ";
 
-            o_w_heat_flux_output << q_o_w[i] << "\n";
-            w_x_heat_flux_output << q_w_x_wall[i] << "\n";
-            x_v_heat_flux_output << q_w_x_wick[i] << "\n";
+            x_v_temperature_output << T_x_v[i] << " ";
+            w_x_temperature_output << T_w_x[i] << " ";
+            o_w_temperature_output << T_o_w[i] << " ";
+            w_bulk_temperature_output << T_w_bulk[i] << " ";
+
+            x_v_mass_flux_output << Gamma_xv[i] << " ";
+
+            o_w_heat_flux_output << q_o_w[i] << " ";
+            w_x_heat_flux_output << q_w_x_wall[i] << " ";
+            x_v_heat_flux_output << q_w_x_wick[i] << " ";
         }
+
+        mesh_io << "\n";
+
+        v_velocity_output << "\n";
+        v_pressure_output << "\n";
+        v_bulk_temperature_output << "\n";
+
+        x_velocity_output << "\n";
+        x_pressure_output << "\n";
+        x_bulk_temperature_output << "\n";
+
+        x_v_temperature_output << "\n";
+        w_x_temperature_output << "\n";
+        o_w_temperature_output << "\n";
+        w_bulk_temperature_output << "\n";
+
+        x_v_mass_flux_output << "\n";
+
+        o_w_heat_flux_output << "\n";
+        w_x_heat_flux_output << "\n";
+        x_v_heat_flux_output << "\n";
+
+        mesh_io.flush();
 
         v_velocity_output.flush();
         v_pressure_output.flush();
@@ -2170,6 +2208,8 @@ int main() {
         #pragma endregion
     }
 
+    mesh_io.close();
+
     v_velocity_output.close();
     v_pressure_output.close();
     v_bulk_temperature_output.close();
@@ -2188,6 +2228,22 @@ int main() {
     o_w_heat_flux_output.close();
     w_x_heat_flux_output.close();
     x_v_heat_flux_output.close();
+
+    system("python plot_data.py mesh.txt "
+        "results/vapor_velocity.txt "
+        "results/vapor_bulk_temperature.txt "
+        "results/vapor_pressure.txt "
+        "results/wick_velocity.txt "
+        "results/wick_bulk_temperature.txt "
+        "results/wick_pressure.txt "
+        "results/wall_bulk_temperature.txt "
+        "results/outer_wall_temperature.txt "
+        "results/wall_wick_interface_temperature.txt "
+        "results/wick_vapor_interface_temperature.txt "
+        "results/outer_wall_heat_flux.txt "
+        "results/wall_wick_heat_flux.txt "
+        "results/wick_vapor_heat_flux.txt "
+        "results/wick_vapor_mass_source.txt");
 
     return 0;
 }
