@@ -945,6 +945,8 @@ int main() {
     std::ofstream w_x_heat_flux_output("results/wall_wick_heat_flux.txt", std::ios::trunc);
     std::ofstream x_v_heat_flux_output("results/wick_vapor_heat_flux.txt", std::ios::trunc);
 
+    std::ofstream rho_output("results/rho_vapor.txt", std::ios::trunc);
+
     mesh_io << std::setprecision(8);
 
     v_velocity_output << std::setprecision(8);
@@ -966,10 +968,20 @@ int main() {
     w_x_heat_flux_output << std::setprecision(8);
     x_v_heat_flux_output << std::setprecision(8);
 
+    rho_output << std::setprecision(8);
+
+    for (int i = 0; i < N; ++i) {
+        mesh_io << i * dz << " ";
+    }
+
+    mesh_io.flush();
+
     #pragma endregion
 
     /// Print number of working threads
     std::cout << "Threads: " << omp_get_max_threads() << "\n";
+
+
 
     /**
      * @brief Time-stepping loop. The timestep is calculated at the beginning of each loop.
@@ -1548,7 +1560,7 @@ int main() {
             q_x_v_wick[i] = liquid_sodium::k(T_x_v[i]) * (ABC[i][4] + 2.0 * ABC[i][5] * r_inner);           // Heat flux across wick-vapor interface (positive if to vapor)
             q_x_v_vapor[i] = vapor_sodium::k(T_x_v[i], p_v[i]) * (ABC[i][4] + 2.0 * ABC[i][5] * r_inner);   // Heat flux across wick-vapor interface (positive if to vapor)
 
-            Q_mass[i] = Gamma_xv[i] * (h_xv_v - h_xv_v);  ///< Volumetric heat source [W/m3] due to evaporation/condensation (to be added to the wick and subtracted to the vapor)
+            Q_mass[i] = 0/*Gamma_xv[i] * (h_xv_v - h_xv_v)*/;  ///< Volumetric heat source [W/m3] due to evaporation/condensation (to be added to the wick and subtracted to the vapor)
 
             printf("");
         }
@@ -1852,6 +1864,8 @@ int main() {
             }
 
             outer_iter_v++;
+
+            printf("");
         }
 
         printf("");
@@ -2139,8 +2153,6 @@ int main() {
 
         for (int i = 0; i < N; ++i) {
 
-            mesh_io << mesh[i] << " ";
-
             v_velocity_output << u_v[i] << " ";
             v_pressure_output << p_v[i] << " ";
             v_bulk_temperature_output << T_v_bulk[i] << " ";
@@ -2159,9 +2171,9 @@ int main() {
             o_w_heat_flux_output << q_o_w[i] << " ";
             w_x_heat_flux_output << q_w_x_wall[i] << " ";
             x_v_heat_flux_output << q_w_x_wick[i] << " ";
-        }
 
-        mesh_io << "\n";
+            rho_output << rho_v[i] << " ";
+        }
 
         v_velocity_output << "\n";
         v_pressure_output << "\n";
@@ -2182,7 +2194,7 @@ int main() {
         w_x_heat_flux_output << "\n";
         x_v_heat_flux_output << "\n";
 
-        mesh_io.flush();
+        rho_output << "\n";
 
         v_velocity_output.flush();
         v_pressure_output.flush();
@@ -2202,6 +2214,25 @@ int main() {
         o_w_heat_flux_output.flush();
         w_x_heat_flux_output.flush();
         x_v_heat_flux_output.flush();
+
+        rho_output.flush();
+
+        system("python plot_data.py mesh.txt "
+            "results/vapor_velocity.txt "
+            "results/vapor_bulk_temperature.txt "
+            "results/vapor_pressure.txt "
+            "results/wick_velocity.txt "
+            "results/wick_bulk_temperature.txt "
+            "results/wick_pressure.txt "
+            "results/wall_bulk_temperature.txt "
+            "results/outer_wall_temperature.txt "
+            "results/wall_wick_interface_temperature.txt "
+            "results/wick_vapor_interface_temperature.txt "
+            "results/outer_wall_heat_flux.txt "
+            "results/wall_wick_heat_flux.txt "
+            "results/wick_vapor_heat_flux.txt "
+            "results/wick_vapor_mass_source.txt "
+            "results/rho_vapor.txt");
 
         printf("");
 
@@ -2229,21 +2260,7 @@ int main() {
     w_x_heat_flux_output.close();
     x_v_heat_flux_output.close();
 
-    system("python plot_data.py mesh.txt "
-        "results/vapor_velocity.txt "
-        "results/vapor_bulk_temperature.txt "
-        "results/vapor_pressure.txt "
-        "results/wick_velocity.txt "
-        "results/wick_bulk_temperature.txt "
-        "results/wick_pressure.txt "
-        "results/wall_bulk_temperature.txt "
-        "results/outer_wall_temperature.txt "
-        "results/wall_wick_interface_temperature.txt "
-        "results/wick_vapor_interface_temperature.txt "
-        "results/outer_wall_heat_flux.txt "
-        "results/wall_wick_heat_flux.txt "
-        "results/wick_vapor_heat_flux.txt "
-        "results/wick_vapor_mass_source.txt");
+    rho_output.close();
 
     return 0;
 }

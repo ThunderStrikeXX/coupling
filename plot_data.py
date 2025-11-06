@@ -3,6 +3,12 @@ import matplotlib.pyplot as plt
 import sys
 import os
 
+def load_last_line(filename):
+    with open(filename) as f:
+        for line in f:
+            pass
+    return np.fromstring(line.strip(), sep=' ')
+
 if len(sys.argv) < 3:
     print("Usage: python plot_data.py x.txt y1.txt y2.txt ...")
     sys.exit(1)
@@ -23,12 +29,12 @@ names = [
     "Wall bulk temperature", "Outer wall temperature",
     "Wall-wick interface temperature", "Wick-vapor interface temperature",
     "Outer wall heat flux", "Wall-wick heat flux", "Wick-vapor heat flux",
-    "Mass volumetric source"
+    "Mass volumetric source", "Vapor density"
 ]
 units = [
     "[m/s]", "[K]", "[Pa]", "[m/s]", "[K]", "[Pa]",
     "[K]", "[K]", "[K]", "[K]",
-    "[W/m²]", "[W/m²]", "[W/m²]", "[W/m³]"
+    "[W/m²]", "[W/m²]", "[W/m²]", "[W/m³]", "[kg/m3]"
 ]
 
 n = len(y_files)
@@ -44,7 +50,7 @@ for start in range(0, n, per_fig):
     for i, ax in enumerate(axes):
         idx = start + i
         if idx < end:
-            y = np.loadtxt(y_files[idx])
+            y = load_last_line(y_files[idx])
             ax.plot(x, y)
             ax.set_title(f"{names[idx]} {units[idx]}")
             ax.set_xlabel("Axial length [m]")
