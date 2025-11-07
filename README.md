@@ -22,14 +22,14 @@ The code is implemented in **C++17**, following the structure of **THROHPUT**, *
 
 ```text
 
-??? coupling.cpp
-??? results/
-?   ??? (data outputs)
-??? videos/
-?   ??? (videos outputs)
-??? make_videos.vbs
-??? plot_data.vbs
-??? README.md
++-- coupling.cpp
++-- results/
+¦   +-- (data outputs)
++-- videos/
+¦   +-- (video outputs)
++-- make_videos.vbs
++-- plot_data.vbs
++-- README.md
 
 ````
 
