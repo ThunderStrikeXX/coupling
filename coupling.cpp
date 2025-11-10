@@ -689,7 +689,7 @@ int main() {
     const double T_env = 280.0;             ///< External environmental temperature [K]
 
     // Geometric parameters
-    const int N = 1000;                                                         ///< Number of axial nodes [-]
+    const int N = 500;                                                         ///< Number of axial nodes [-]
     const double L = 0.982; 			                                        ///< Length of the heat pipe [m]
     const double dz = L / N;                                                    ///< Axial discretization step [m]
     const double evaporator_length = 0.502;                                     ///< Evaporator length [m]
@@ -712,7 +712,7 @@ int main() {
 
     // Time-stepping parameters
     double dt = 1e-8;                               ///< Initial time step [s] (then it is updated according to the limits)
-    const int nSteps = 1000;                          ///< Number of timesteps
+    const int nSteps = 100000;                          ///< Number of timesteps
     const double time_total = nSteps * dt;          ///< Total simulation time [s]
 
     // Wick permeability parameters
@@ -720,14 +720,14 @@ int main() {
     const double CF = 0.0;                          ///< Forchheimer coefficient [1/m]
 
     // PISO Wick parameters
-    const int tot_outer_iter_x = 10000;             ///< Outer iterations per time-step [-]
-    const int tot_inner_iter_x = 500;               ///< Inner iterations per outer iteration [-]
-    const double outer_tol_x = 1e-6;                ///< Tolerance for the inner iterations [-]
-    const double inner_tol_x = 1e-4;                ///< Tolerance for the inner iterations [-]
+    const int tot_outer_iter_x = 1000;             ///< Outer iterations per time-step [-]
+    const int tot_inner_iter_x = 50;               ///< Inner iterations per outer iteration [-]
+    const double outer_tol_x = 1e-4;                ///< Tolerance for the inner iterations [-]
+    const double inner_tol_x = 1e-2;                ///< Tolerance for the inner iterations [-]
 
     // PISO Vapor parameters
     const int tot_outer_iter_v = 1000;             ///< Outer iterations per time-step [-]
-    const int tot_inner_iter_v = 100;               ///< Inner iterations per outer iteration [-]
+    const int tot_inner_iter_v = 50;               ///< Inner iterations per outer iteration [-]
     const double outer_tol_v = 1e-4;                ///< Tolerance for the inner iterations [-]
     const double inner_tol_v = 1e-2;                ///< Tolerance for the inner iterations [-]
 
@@ -1007,9 +1007,9 @@ int main() {
         /// Evaluates minimum value of the wick temperature
         const double min_T_wick = *std::min_element(T_x_bulk.begin(), T_x_bulk.end());
 
-        std::cout << "Solving wick! Time elapsed:" << dt * n << "/" << time_total
+        /*std::cout << "Solving wick! Time elapsed:" << dt * n << "/" << time_total
             << ", max courant number: " << max_abs_u * dt / dz
-            << ", max reynolds number: " << max_abs_u * r_interface *liquid_sodium::rho(min_T_wick) / liquid_sodium::mu(min_T_wick) << "\n";
+            << ", max reynolds number: " << max_abs_u * r_interface *liquid_sodium::rho(min_T_wick) / liquid_sodium::mu(min_T_wick) << "\n";*/
 
         // Backup old variables
         T_old_x = T_x_bulk;
@@ -1122,8 +1122,6 @@ int main() {
                 /**
                  * @brief Calculates the coefficients for the tridiagonal system of the pressure correction p'
                  */
-
-                
                 for (int i = 1; i < N - 1; i++) {
 
                     const double rho_P = liquid_sodium::rho(T_x_bulk[i]);       ///< Density [kg/m3] of the central cell
@@ -1512,7 +1510,7 @@ int main() {
             q_x_v_wick[i] = liquid_sodium::k(T_x_v[i]) * (ABC[i][4] + 2.0 * ABC[i][5] * r_inner);           // Heat flux across wick-vapor interface (positive if to vapor)
             q_x_v_vapor[i] = vapor_sodium::k(T_x_v[i], p_v[i]) * (ABC[i][4] + 2.0 * ABC[i][5] * r_inner);   // Heat flux across wick-vapor interface (positive if to vapor)
 
-            Q_mass[i] = Gamma_xv[i] * (h_xv_v - h_xv_v);  ///< Volumetric heat source [W/m3] due to evaporation/condensation (to be added to the wick and subtracted to the vapor)
+            Q_mass[i] = Gamma_xv[i] * (h_xv_v - h_vx_x);  ///< Volumetric heat source [W/m3] due to evaporation/condensation (to be added to the wick and subtracted to the vapor)
 
             DEBUG_POINT();
         }
@@ -1544,9 +1542,9 @@ int main() {
         /// Evaluates minimum temperature value of the vapor
         const double min_T_v = *std::min_element(T_v_bulk.begin(), T_v_bulk.end());
 
-        std::cout << "Solving vapor! Time elapsed:" << dt * n << "/" << time_total
+        /*std::cout << "Solving vapor! Time elapsed:" << dt * n << "/" << time_total
             << ", max courant number: " << max_abs_u_v * dt / dz
-            << ", max reynolds number: " << max_abs_u_v * r_interface * max_rho_v / vapor_sodium::mu(min_T_v) << "\n";
+            << ", max reynolds number: " << max_abs_u_v * r_interface * max_rho_v / vapor_sodium::mu(min_T_v) << "\n";*/
 
         /// Backup old variables
         T_old_v = T_v_bulk;

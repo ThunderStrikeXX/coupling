@@ -4,6 +4,17 @@ from matplotlib.animation import FuncAnimation
 from matplotlib.widgets import Button, Slider
 import textwrap, sys, os
 
+def safe_loadtxt(filename, fill_value=-1e9):
+    def parse_line(line):
+        # sostituisce '-nan(ind)' o 'nan' o 'NaN' con fill_value
+        return line.replace('-nan(ind)', str(fill_value)) \
+                   .replace('nan', str(fill_value)) \
+                   .replace('NaN', str(fill_value))
+    with open(filename, 'r') as f:
+        lines = [parse_line(l) for l in f]
+    from io import StringIO
+    return np.loadtxt(StringIO(''.join(lines)))
+
 # --- Input check ---
 if len(sys.argv) < 3:
     print("Usage: python plot_data.py x.txt y1.txt y2.txt ...")
@@ -18,8 +29,8 @@ for f in [x_file] + y_files:
         sys.exit(1)
 
 # --- Data ---
-x = np.loadtxt(x_file)
-Y = [np.loadtxt(f) for f in y_files]
+x = safe_loadtxt(x_file)
+Y = [safe_loadtxt(f) for f in y_files]
 
 names = [
     "Vapor velocity", "Vapor bulk temperature", "Vapor pressure",
@@ -46,7 +57,7 @@ def robust_ylim(y):
 
 # --- Figure principale ---
 fig, ax = plt.subplots(figsize=(11, 6))  # più larga
-plt.subplots_adjust(left=0.04, bottom=0.25, right=0.70)  # lascia spazio per 2 colonne
+plt.subplots_adjust(left=0.06, bottom=0.25, right=0.70)  # lascia spazio per 2 colonne
 line, = ax.plot([], [], lw=2)
 ax.grid(True)
 ax.set_xlabel("Axial length [m]")
