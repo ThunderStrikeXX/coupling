@@ -689,7 +689,7 @@ int main() {
     const double T_env = 280.0;             ///< External environmental temperature [K]
 
     // Geometric parameters
-    const int N = 500;                                                         ///< Number of axial nodes [-]
+    const int N = 100;                                                         ///< Number of axial nodes [-]
     const double L = 0.982; 			                                        ///< Length of the heat pipe [m]
     const double dz = L / N;                                                    ///< Axial discretization step [m]
     const double evaporator_length = 0.502;                                     ///< Evaporator length [m]
@@ -722,14 +722,14 @@ int main() {
     // PISO Wick parameters
     const int tot_outer_iter_x = 1000;             ///< Outer iterations per time-step [-]
     const int tot_inner_iter_x = 50;               ///< Inner iterations per outer iteration [-]
-    const double outer_tol_x = 1e-4;                ///< Tolerance for the inner iterations [-]
-    const double inner_tol_x = 1e-2;                ///< Tolerance for the inner iterations [-]
+    const double outer_tol_x = 1e-4;                ///< Tolerance for the outer iterations (velocity) [-]
+    const double inner_tol_x = 1e-2;                ///< Tolerance for the inner iterations (pressure) [-]
 
     // PISO Vapor parameters
     const int tot_outer_iter_v = 1000;             ///< Outer iterations per time-step [-]
-    const int tot_inner_iter_v = 50;               ///< Inner iterations per outer iteration [-]
-    const double outer_tol_v = 1e-4;                ///< Tolerance for the inner iterations [-]
-    const double inner_tol_v = 1e-2;                ///< Tolerance for the inner iterations [-]
+    const int tot_inner_iter_v = 100;               ///< Inner iterations per outer iteration [-]
+    const double outer_tol_v = 1e-4;                ///< Tolerance for the outer iterations (velocity) [-]
+    const double inner_tol_v = 1e-4;                ///< Tolerance for the inner iterations (pressure) [-]
 
     // Mesh z positions
     std::vector<double> mesh(N, 0.0);
@@ -833,7 +833,8 @@ int main() {
     std::vector<double> Q_x(N, 0.0);             ///< Wick heat source [W/m3]
     std::vector<double> Q_v(N, 0.0);             ///< Vapor heat source [W/m3]
 
-    std::vector<double> Q_mass(N, 0.0);           ///< Heat volumetric source [W/m3] due to evaporation condensation. To be subtracted from the wick and added to the vapor
+    std::vector<double> Q_mass_vapor(N, 0.0);    ///< Heat volumetric source [W/m3] due to evaporation condensation. To be summed to the vapor
+    std::vector<double> Q_mass_wick(N, 0.0);     ///< Heat volumetric source [W/m3] due to evaporation condensation. To be summed to the wick
 
     // Models
     const int rhie_chow_on_off_x = 1;             ///< 0: no wick RC correction, 1: wick with RC correction
@@ -1312,7 +1313,7 @@ int main() {
             /**
               * Wick volumetric heat source [W/m^3] due to phase change and interface heat flux
               */ 
-            Q_x[i] = volum_heat_source_w_x*dz - volum_heat_source_x_v*dz - Q_mass[i];  
+            Q_x[i] = volum_heat_source_w_x*dz - volum_heat_source_x_v*dz + Q_mass_wick[i];  
 
             aXT[i] = -D_l - std::max(C_l, 0.0);                                                 ///< [W/(m2 K)]
             cXT[i] = -D_r - std::max(-C_r, 0.0);                                                ///< [W/(m2 K)]
@@ -1510,7 +1511,8 @@ int main() {
             q_x_v_wick[i] = liquid_sodium::k(T_x_v[i]) * (ABC[i][4] + 2.0 * ABC[i][5] * r_inner);           // Heat flux across wick-vapor interface (positive if to vapor)
             q_x_v_vapor[i] = vapor_sodium::k(T_x_v[i], p_v[i]) * (ABC[i][4] + 2.0 * ABC[i][5] * r_inner);   // Heat flux across wick-vapor interface (positive if to vapor)
 
-            Q_mass[i] = Gamma_xv[i] * (h_xv_v - h_vx_x);  ///< Volumetric heat source [W/m3] due to evaporation/condensation (to be added to the wick and subtracted to the vapor)
+            Q_mass_vapor[i] = Gamma_xv[i] * h_xv_v;  ///< Volumetric heat source [W/m3] due to evaporation/condensation (to be summed to the vapor)
+            Q_mass_wick[i] = -Gamma_xv[i] * h_vx_x;  ///< Volumetric heat source [W/m3] due to evaporation/condensation (to be summed to the wick)
 
             DEBUG_POINT();
         }
@@ -1997,15 +1999,20 @@ int main() {
             const double C_l = (Fl * cp_l);                         ///< Mass flux [W/(m^2 K)] of the left face (upwind)
             const double C_r = (Fr * cp_r);                         ///< Mass flux [W/(m^2 K)] of the left face (upwind)
 
-            Q_v[i] = 2 * q_x_v_vapor[i] / r_inner + Q_mass[i];      ///< Vapor volumetric heat source [W/m^3] due to phase change and heat flux at the interface
+            Q_v[i] = 2 * q_x_v_vapor[i] / r_inner + Q_mass_vapor[i];      ///< Vapor volumetric heat source [W/m^3] due to phase change and heat flux at the interface
+
+            const double dpdz_up = (u_v[i] >= 0.0)
+                ? u_v[i] * (p_v[i] - p_v[i - 1]) / dz
+                : u_v[i] * (p_v[i + 1] - p_v[i]) / dz;
 
             aVT[i] = -D_l - std::max(C_l, 0.0);                     ///< [W/(m2 K)]
             cVT[i] = -D_r - std::max(-C_r, 0.0);                    ///< [W/(m2 K)]
             bVT[i] = (std::max(C_r, 0.0) + std::max(-C_l, 0.0)) +   
                         D_l + D_r + rhoCp_dzdt;                     ///< [W/(m2 K)]
 
-            const double pressure_work = (p_v[i] - p_old_v[i]) / dt;
-            dVT[i] = rhoCp_dzdt * T_old_v[i] + pressure_work * dz + 
+            const double pressure_work = (p_v[i] - p_old_v[i]) / dt + dpdz_up;
+            dVT[i] = rhoCp_dzdt * T_old_v[i] + 
+                        pressure_work * dz +
                         Q_v[i] * dz;                                ///< [W/m2]
 
         }
