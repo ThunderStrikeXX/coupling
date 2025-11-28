@@ -1416,18 +1416,6 @@ int main() {
                     + (vapor_sodium::h(T_v_bulk[i]) - vapor_sodium::h(T_x_v[i]));
             }
 
-            /**
-             * Variation of the vapor pressure due to density and temperature changes [Pa]
-             * Calculating using THROHPUT linearization approach (function of density and temperature)
-             */
-            /*const double dPg = (p_v[i] / rho_v[i]) * (rho_v[i] - rho_old_v[i])
-                + (p_v[i] / T_v_bulk[i]) * (T_v_bulk[i] - T_old_v[i]);   */
-
-            // Coefficients for the linearization of the new mass transfer rate
-            /*bGamma[i] = -(Gamma_xv[i] / (2.0 * T_x_v[i])) + fac * sigma_e * dPsat_dT;   ///< b coefficient [kg/(m3 s K)] 
-            aGamma[i] = 0.5 * Gamma_xv[i] + fac * sigma_e * dPsat_dT * T_x_v[i];        ///< a coefficient [kg/(m3 s)]
-            cGamma[i] = -fac * sigma_c * Omega;                                         ///< c coefficient [s/m2]*/
-
             /// Coefficients for the parabolic temperature profiles in wall and wick (check equations)
             const double E1w = 2.0 / 3.0 * (r_o + r_w - 1 / (1 / r_o + 1 / r_w));
             const double E2w = 0.5 * (r_o * r_o + r_w * r_w);
