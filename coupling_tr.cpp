@@ -43,7 +43,7 @@ namespace steel {
 
     /**
     * @brief Specific heat interpolation in temperature with complexity O(1)
-    * @param Tquery Temperature for which the Cp is needed.
+    *   ASME / ITER Handbook / FEA material model
     */
     inline double cp(double Tquery) {
 
@@ -68,13 +68,15 @@ namespace steel {
 
     /**
     * @brief Density [kg/m3] as a function of temperature T 
+    *   ASME / ITER Handbook / FEA material model
     */
     inline double rho(double T) { return (7.9841 - 2.6560e-4 * T - 1.158e-7 * T * T) * 1e3; }
 
     /**
-    * @brief Thermal conductivity [W/(m*K)] as a function of temperature T 
+    * @brief Thermal conductivity [W/(m*K)] as a function of temperature T
+    *   ASME / ITER Handbook / FEA material model
     */
-    inline double k(double T) { return (3.116e-2 + 1.618e-4 * T) * 100.0; }
+    inline double k(double T) { return (8.116e-2 + 1.618e-4 * T) * 100.0; }
 }
 
 #pragma endregion
@@ -101,6 +103,7 @@ namespace liquid_sodium {
 
     /**
     * @brief Density [kg/m3] as a function of temperature T
+    *   Keenan–Keyes / Vargaftik
     */
     inline double rho(double T) {
 
@@ -110,6 +113,7 @@ namespace liquid_sodium {
 
     /**
     * @brief Thermal conductivity [W/(m*K)] as a function of temperature T
+    *   Vargaftik
     */
     inline double k(double T) {
 
@@ -119,6 +123,7 @@ namespace liquid_sodium {
 
     /**
     * @brief Specific heat at constant pressure [J/(kg·K)] as a function of temperature 
+    *   Vargaftik / Fink & Leibowitz
     */
     inline double cp(double T) {
 
@@ -129,6 +134,7 @@ namespace liquid_sodium {
 
     /**
     * @brief Dynamic viscosity [Pa·s] using Shpilrain et al. correlation, valid for 371 K < T < 2500 K
+    *   Shpilrain et al
     */
     inline double mu(double T) {
 
@@ -137,11 +143,13 @@ namespace liquid_sodium {
     }
 
     /**
-      * @brief Liquid sodium enthalpy [J/kg]NIST Shomate coefficients for Na(l), 370.98–1170.525 K
-      * Cp° = A + B*t + C*t^2 + D*t^3 + E/t^2  [J/mol/K]
-      * H° - H°298.15 = A*t + B*t^2/2 + C*t^3/3 + D*t^4/4 - E/t + F - H  [kJ/mol]
-      * with t = T/1000
-      */ 
+      * @brief Liquid sodium enthalpy [J/kg]
+      *     NIST Shomate coefficients for Na(l), 370.98–1170.525 K
+      *
+      *     Cp° = A + B*t + C*t^2 + D*t^3 + E/t^2  [J/mol/K]
+      *     H° - H°298.15 = A*t + B*t^2/2 + C*t^3/3 + D*t^4/4 - E/t + F - H  [kJ/mol]
+      *     with t = T/1000
+      */
     inline double h(double T) {
 
         const double T_min = 370.98, T_max = 1170.525;
@@ -182,10 +190,6 @@ namespace liquid_sodium {
  */
 namespace vapor_sodium {
 
-    constexpr double Tcrit_Na = 2509.46;           ///< Critical temperature [K]
-    constexpr double Ad_Na = 3.46;                 ///< Adiabatic factor [-]
-    constexpr double m_g_Na = 23e-3;               ///< Molar mass [kg/mol]
-
     /**
     * @brief Functions that clamps a value x to the range [a, b]
     */
@@ -200,11 +204,18 @@ namespace vapor_sodium {
         if (T <= Tgrid.front()) return Ygrid.front();
         if (T >= Tgrid.back())  return Ygrid.back();
 
-        // locate interval
         size_t i = 0;
-        while (i + 1 < N && !(Tgrid[i] <= T && T <= Tgrid[i + 1])) ++i;
+        while (i + 1 < N && Tgrid[i + 1] < T) ++i;
 
-        return Ygrid[i] + (T - Tgrid[i]) / (Tgrid[i + 1] - Tgrid[i]) * (Ygrid[i + 1] - Ygrid[i]);
+        if (i + 1 >= N) return Ygrid[N - 1];  // fallback assoluto
+
+        // interpolazione
+        double T0 = Tgrid[i];
+        double T1 = Tgrid[i + 1];
+        double Y0 = Ygrid[i];
+        double Y1 = Ygrid[i + 1];
+
+        return Y0 + (T - T0) / (T1 - T0) * (Y1 - Y0);
     }
 
     /**
@@ -245,6 +256,7 @@ namespace vapor_sodium {
 
     /**
     * @brief Saturation pressure [Pa] as a function of temperature T
+    *   Satou-Moriyama
     */
     inline double P_sat(double T) {
 
@@ -254,6 +266,7 @@ namespace vapor_sodium {
 
     /**
     * @brief Derivative of saturation pressure with respect to temperature [Pa/K] as a function of temperature T
+    *   Satou-Moriyama
     */
     inline double dP_sat_dVT(double T) {
 
@@ -264,6 +277,7 @@ namespace vapor_sodium {
 
     /**
     * @brief Density of saturated vapor [kg/m^3] as a function of temperature T
+    *   Clapeyron + phase equilibrium
     */
     inline double rho(double T) {
 
@@ -276,6 +290,7 @@ namespace vapor_sodium {
 
     /**
     * @brief Specific heat at constant pressure from table interpolation [J/(kg*K)] as a function of temperature T
+    *   Fink & Leibowitz
     */
     inline double cp(double T) {
 
@@ -289,21 +304,8 @@ namespace vapor_sodium {
     }
 
     /**
-    * @brief Specific heat at constant volume from table interpolation [J/(kg*K)] as a function of temperature T
-    */
-    inline double cv(double T) {
-
-        static const std::array<double, 21> Tgrid = { 400,500,600,700,800,900,1000,1100,1200,1300,1400,1500,1600,1700,1800,1900,2000,2100,2200,2300,2400 };
-        static const std::array<double, 21> Cvgrid = { 490, 840,1310,1710,1930,1980,1920,1810,1680,1580,1510,1440,1390,1380,1360,1330,1300,1300,1340,1440,1760 };
-
-        // Table also lists 2500 K = 17030; extreme near critical. If needed, extend:
-        if (T >= 2500.0) return 17030.0;
-
-        return interp_T(Tgrid, Cvgrid, T);
-    }
-
-    /**
     * @brief Dynamic viscosity of sodium vapor [Pa·s] as a function of temperature T
+    *   Linear fit ANL
     */
     inline double mu(double T) { return 6.083e-9 * T + 1.2606e-5; }
 
@@ -406,7 +408,7 @@ namespace vapor_sodium {
     }
 
     /**
-    * @brief Friction factor [-] (Gnielinski correlation) as a function of Reynolds number. 
+    * @brief Friction factor [-] (Prandtl–von Kármán smooth pipe law) as a function of Reynolds number. 
     * Retrieves an error if Re < 0.
     */
     inline double f(double Re) {
@@ -436,7 +438,7 @@ namespace vapor_sodium {
     }
 
     /**
-    * @brief Convective heat transfer coefficient [W/m^2/K] (Gnielinski correlation) as a function of Reynolds number
+    * @brief Convective heat transfer coefficient [W/m^2/K] as a function of Reynolds number
     * Retrieves an error if Re < 0 or Nu < 0.
     */ 
     inline double h_conv(double Re, double Pr, double k, double Dh) {
