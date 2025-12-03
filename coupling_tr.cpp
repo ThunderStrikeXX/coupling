@@ -235,6 +235,66 @@ double new_dt_v(double dz, double dt_old,
 
 #pragma endregion
 
+std::vector<double> read_last_row(const std::string& filename, int N) {
+
+    std::ifstream f(filename);
+    std::string line, last;
+
+    while (std::getline(f, line)) last = line;
+    if (last.empty()) return std::vector<double>(N, 0.0);
+
+    std::vector<double> out;
+    out.reserve(N);
+
+    std::string token;
+    for (char c : last) {
+        if (c == ' ' || c == '\t') {
+            if (!token.empty()) {
+                out.push_back(std::stod(token));
+                token.clear();
+            }
+        }
+        else {
+            token.push_back(c);
+        }
+    }
+    if (!token.empty()) out.push_back(std::stod(token));
+
+    if (out.size() != N) out.resize(N, 0.0);
+    return out;
+}
+
+std::string select_case() {
+
+    std::vector<std::string> cases;
+
+    for (const auto& entry : std::filesystem::directory_iterator(".")) {
+        if (entry.is_directory()) {
+            const std::string name = entry.path().filename().string();
+            if (name.rfind("case_", 0) == 0) cases.push_back(name);
+        }
+    }
+
+    if (cases.empty()) return "";
+
+    std::cout << "Cases found:\n";
+    for (size_t i = 0; i < cases.size(); ++i) {
+        std::cout << i << ": " << cases[i] << "\n";
+    }
+
+    std::cout << "Press ENTER for a new simulation or input the number of the simulation you want to continue and then press ENTER to continue a simulation";
+
+    std::string s;
+    std::getline(std::cin, s);
+
+    if (s.empty()) return "";
+
+    int idx = std::stoi(s);
+    if (idx < 0 || idx >= static_cast<int>(cases.size())) return "";
+
+    return cases[idx];
+}
+
 /**
  * @brief Simplified 1D transient coupling between wall, wick, and vapor.
  */
@@ -324,8 +384,15 @@ int main() {
     const int N_c = static_cast<int>(std::ceil(condenser_length / dz));     /// Number of nodes of the condenser region [-]
     const int N_a = N - (N_e + N_c);                                        /// Number of nodes of the adiabadic region [-]
 
-	/// Constant temperature for initialization
+    /// Constant temperature for initialization
     const double T_init = 800.0;
+
+    std::vector<double> T_o_w(N, T_init);
+    std::vector<double> T_w_bulk(N, T_init);
+    std::vector<double> T_w_x(N, T_init);
+    std::vector<double> T_x_bulk(N, T_init);
+    std::vector<double> T_x_v(N, T_init);
+    std::vector<double> T_v_bulk(N, T_init);
 
     // Initialization of the temperatures 
     std::vector<double> T_o_w(N, T_init);
@@ -358,19 +425,6 @@ int main() {
     /// Initialization of the vapor pressure
     for (int i = 0; i < N; ++i) p_v[i] = vapor_sodium::P_sat(T_x_v[i]);
 
-    // Wick BCs
-    const double u_inlet_x = 0.0;                               /// Wick inlet velocity [m/s]
-    const double u_outlet_x = 0.0;                              /// Wick outlet velocity [m/s]
-    double p_outlet_x = vapor_sodium::P_sat(T_x_v[N - 1]);      /// Wick outlet pressure [Pa]
-
-    // Vapor BCs
-    const double u_inlet_v = 0.0;                               /// Vapor inlet velocity [m/s]
-    const double u_outlet_v = 0.0;                              /// Vapor outlet velocity [m/s]
-    double p_outlet_v = vapor_sodium::P_sat(T_v_bulk[N - 1]);   /// Vapor outlet pressure [Pa]
-
-    /// Heat flux at evaporator from given power [W/m^2]
-    const double q_pp_evaporator = power / (2 * M_PI * evaporator_length * r_o);     
-
     // Heat fluxes at the interfaces [W/m^2]
     std::vector<double> q_o_w(N, 0.0);           /// Heat flux [W/m^2] across outer wall in wall region (positive if directed to wall)
     std::vector<double> q_w_x_wall(N, 0.0);      /// Heat flux [W/m^2] across wall-wick interface in the wall region (positive if directed to wick)
@@ -390,6 +444,60 @@ int main() {
     std::vector<double> Gamma_xv_vapor(N, 0.0);     /// Volumetric mass source [kg / (m^3 s)] (positive if evaporation)
     std::vector<double> Gamma_xv_wick(N, 0.0);      /// Volumetric mass source [kg / (m^3 s)] (positive if evaporation)
 
+    std::string case_chosen = select_case();
+
+    if (!case_chosen.empty())  {
+
+        u_v = read_last_row(case_chosen + "/vapor_velocity.txt", N);
+        p_v = read_last_row(case_chosen + "/vapor_pressure.txt", N);
+        T_v_bulk = read_last_row(case_chosen + "/vapor_bulk_temperature.txt", N);
+
+        u_x = read_last_row(case_chosen + "/wick_velocity.txt", N);
+        p_x = read_last_row(case_chosen + "/wick_pressure.txt", N);
+        T_x_bulk = read_last_row(case_chosen + "/wick_bulk_temperature.txt", N);
+
+        T_x_v = read_last_row(case_chosen + "/wick_vapor_interface_temperature.txt", N);
+        T_w_x = read_last_row(case_chosen + "/wall_wick_interface_temperature.txt", N);
+        T_o_w = read_last_row(case_chosen + "/outer_wall_temperature.txt", N);
+        T_w_bulk = read_last_row(case_chosen + "/wall_bulk_temperature.txt", N);
+
+        phi_x_v = read_last_row(case_chosen + "/wick_vapor_mass_source.txt", N);
+
+        q_o_w = read_last_row(case_chosen + "/outer_wall_heat_flux.txt", N);
+        q_w_x_wall = read_last_row(case_chosen + "/wall_wick_heat_flux.txt", N);
+        q_w_x_wick = read_last_row(case_chosen + "/wick_vapor_heat_flux.txt", N);
+
+        rho_v = read_last_row(case_chosen + "/rho_vapor.txt", N);
+
+        for (int i = 0; i < N; i++) p_storage_x[i + 1] = p_x[i];
+        p_storage_x[0] = p_storage_x[1];
+        p_storage_x[N + 1] = p_storage_x[N];
+
+        for (int i = 0; i < N; i++) p_storage_v[i + 1] = p_v[i];
+        p_storage_v[0] = p_storage_v[1];
+        p_storage_v[N + 1] = p_storage_v[N];
+
+        // Heat fluxes at the interfaces [W/m^2]
+        std::vector<double> q_o_w(N, 0.0);           /// Heat flux [W/m^2] across outer wall in wall region (positive if directed to wall)
+        std::vector<double> q_w_x_wall(N, 0.0);      /// Heat flux [W/m^2] across wall-wick interface in the wall region (positive if directed to wick)
+        std::vector<double> q_w_x_wick(N, 0.0);      /// Heat flux [W/m^2] across wall-wick interface in the wick region (positive if directed to wick)
+        std::vector<double> q_x_v_wick(N, 0.0);      /// Heat flux [W/m^2] across wick-vapor interface in the wick region (positive if directed to vapor)
+        std::vector<double> q_x_v_vapor(N, 0.0);     /// Heat flux [W/m^2] across wick-vapor interface in the vapor region (positive if directed to vapor)
+
+        std::vector<double> Q_flux_wall(N, 0.0);     /// Wall heat source due to fluxes [W/m3]
+        std::vector<double> Q_flux_wick(N, 0.0);     /// Wick heat source due to fluxes [W/m3]
+        std::vector<double> Q_flux_vapor(N, 0.0);    /// Vapor heat source due to fluxes[W/m3]
+
+        std::vector<double> Q_mass_vapor(N, 0.0);    /// Heat volumetric source [W/m3] due to evaporation condensation. To be summed to the vapor
+        std::vector<double> Q_mass_wick(N, 0.0);     /// Heat volumetric source [W/m3] due to evaporation condensation. To be summed to the wick
+
+        // Mass sources/fluxes
+        std::vector<double> phi_x_v(N, 0.0);            /// Mass flux [kg/m2/s] at the wick-vapor interface (positive if evaporation)
+        std::vector<double> Gamma_xv_vapor(N, 0.0);     /// Volumetric mass source [kg / (m^3 s)] (positive if evaporation)
+        std::vector<double> Gamma_xv_wick(N, 0.0);      /// Volumetric mass source [kg / (m^3 s)] (positive if evaporation)
+
+    }
+	
     // Old values
     std::vector<double> T_o_w_old = T_o_w;
     std::vector<double> T_w_bulk_old = T_w_bulk;
@@ -398,13 +506,33 @@ int main() {
     std::vector<double> T_x_v_old = T_x_v;
     std::vector<double> T_v_bulk_old = T_v_bulk;
 
-    // Iter values
+    std::vector<double> u_x_old = u_x;
+    std::vector<double> p_x_old = p_x;
+
+    std::vector<double> u_v_old = u_v;
+    std::vector<double> p_v_old = p_v;
+    std::vector<double> rho_v_old = rho_v;
+
+    // Iter values (only for Picard loops)
     std::vector<double> T_o_w_iter(N, 0.0);
     std::vector<double> T_w_bulk_iter(N, 0.0);
     std::vector<double> T_w_x_iter(N, 0.0);
     std::vector<double> T_x_bulk_iter(N, 0.0);
     std::vector<double> T_x_v_iter(N, 0.0);
     std::vector<double> T_v_bulk_iter(N, 0.0);
+
+    // Wick BCs
+    const double u_inlet_x = 0.0;                               /// Wick inlet velocity [m/s]
+    const double u_outlet_x = 0.0;                              /// Wick outlet velocity [m/s]
+    double p_outlet_x = vapor_sodium::P_sat(T_x_v[N - 1]);      /// Wick outlet pressure [Pa]
+
+    // Vapor BCs
+    const double u_inlet_v = 0.0;                               /// Vapor inlet velocity [m/s]
+    const double u_outlet_v = 0.0;                              /// Vapor outlet velocity [m/s]
+    double p_outlet_v = vapor_sodium::P_sat(T_v_bulk[N - 1]);   /// Vapor outlet pressure [Pa]
+
+    /// Heat flux at evaporator from given power [W/m^2]
+    const double q_pp_evaporator = power / (2 * M_PI * evaporator_length * r_o);
 
     // Turbulence constants for sodium vapor (SST model)
     const double Pr_t = 0.01;                                   /// Prandtl turbulent number for sodium vapor [-]
@@ -434,7 +562,6 @@ int main() {
     const int rhie_chow_on_off_x = 1;             /// 0: no wick RC correction, 1: wick with RC correction
     const int rhie_chow_on_off_v = 1;             /// 0: no vapor RC correction, 1: vapor with RC correction
     const int SST_model_turbulence_on_off = 0;    /// 0: no vapor turbulence, 1: vapor with turbulence
-
 
     /// The coefficient bVU is needed in momentum predictor loop and 
     /// pressure correction to estimate the velocities at the faces using the Rhie and Chow correction
@@ -1888,7 +2015,7 @@ int main() {
 
         #pragma region output
 
-        const int output_every = 100;
+        const int output_every = 1000;
 
         if(n % output_every == 0){
             for (int i = 0; i < N; ++i) {
