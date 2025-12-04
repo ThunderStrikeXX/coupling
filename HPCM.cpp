@@ -71,6 +71,41 @@ std::vector<double> solveTridiagonal(const std::vector<double>& a,
 
 #pragma region initialization_algorithms
 
+std::vector<double> read_second_last_row(const std::string& filename, int N) {
+
+    std::ifstream f(filename);
+    std::string line, prev, last;
+
+    // prev = riga precedente, last = riga corrente
+    while (std::getline(f, line)) {
+        prev = last;
+        last = line;
+    }
+
+    // Se il file ha meno di due righe
+    if (prev.empty()) return std::vector<double>(N, 0.0);
+
+    std::vector<double> out;
+    out.reserve(N);
+
+    std::string token;
+    for (char c : prev) {
+        if (c == ' ' || c == '\t') {
+            if (!token.empty()) {
+                out.push_back(std::stod(token));
+                token.clear();
+            }
+        }
+        else {
+            token.push_back(c);
+        }
+    }
+    if (!token.empty()) out.push_back(std::stod(token));
+
+    if (out.size() != N) out.resize(N, 0.0);
+    return out;
+}
+
 
 std::vector<double> read_last_row(const std::string& filename, int N) {
 
@@ -469,6 +504,21 @@ int main() {
 	std::vector<double> saturation_pressure(N, 0.0);    /// Saturation pressure field [Pa]
 	std::vector<double> sonic_velocity(N, 0.0);         /// Sonic velocity field [m/s]
 
+    // Old values declaration
+    std::vector<double> T_o_w_old;
+    std::vector<double> T_w_bulk_old;
+    std::vector<double> T_w_x_old;
+    std::vector<double> T_x_bulk_old;
+    std::vector<double> T_x_v_old;
+    std::vector<double> T_v_bulk_old;
+
+    std::vector<double> u_x_old;
+    std::vector<double> p_x_old;
+
+    std::vector<double> u_v_old;
+    std::vector<double> p_v_old;
+    std::vector<double> rho_v_old;
+
     std::string case_chosen = select_case();
 
     if(case_chosen.empty()) {
@@ -491,6 +541,21 @@ int main() {
 
         mesh_output.flush();
         mesh_output.close();
+
+        // Old values
+        T_o_w_old = T_o_w;
+        T_w_bulk_old = T_w_bulk;
+        T_w_x_old = T_w_x;
+        T_x_bulk_old = T_x_bulk;
+        T_x_v_old = T_x_v;
+        T_v_bulk_old = T_v_bulk;
+
+        u_x_old = u_x;
+        p_x_old = p_x;
+
+        u_v_old = u_v;
+        p_v_old = p_v;
+        rho_v_old = rho_v;
 
     } else {
 
@@ -525,7 +590,30 @@ int main() {
         Q_mass_wick = read_last_row(case_chosen + "/wick_heat_source_mass.txt", N);
 
 		time_total = read_last_value(case_chosen + "/time.txt");
+
+        // Old values
+        T_o_w_old = read_second_last_row(case_chosen + "/outer_wall_temperature.txt", N);
+        T_w_bulk_old = read_second_last_row(case_chosen + "/wall_bulk_temperature.txt", N);
+        T_w_x_old = read_second_last_row(case_chosen + "/wall_wick_interface_temperature.txt", N);
+        T_x_bulk_old = read_second_last_row(case_chosen + "/wick_bulk_temperature.txt", N);
+        T_x_v_old = read_second_last_row(case_chosen + "/wick_vapor_interface_temperature.txt", N);
+        T_v_bulk_old = read_second_last_row(case_chosen + "/vapor_bulk_temperature.txt", N);
+
+        u_x_old = read_second_last_row(case_chosen + "/wick_velocity.txt", N);
+        p_x_old = read_second_last_row(case_chosen + "/wick_pressure.txt", N);
+
+        u_v_old = read_second_last_row(case_chosen + "/vapor_velocity.txt", N);
+        p_v_old = read_second_last_row(case_chosen + "/vapor_pressure.txt", N);
+        rho_v_old = read_second_last_row(case_chosen + "/rho_vapor.txt", N);
     }
+
+    for (int i = 0; i < N; i++) p_storage_x[i + 1] = p_x[i];
+    p_storage_x[0] = p_storage_x[1];
+    p_storage_x[N + 1] = p_storage_x[N];
+
+    for (int i = 0; i < N; i++) p_storage_v[i + 1] = p_v[i];
+    p_storage_v[0] = p_storage_v[1];
+    p_storage_v[N + 1] = p_storage_v[N];
 
     // Steam outputs
     std::ofstream time_output(case_chosen + "/time.txt", std::ios::app);
@@ -553,12 +641,12 @@ int main() {
     std::ofstream q_x_v_wick_output(case_chosen + "/wick_xv_heat_flux.txt", std::ios::app);
     std::ofstream q_x_v_vapor_output(case_chosen + "/vapor_xv_heat_flux.txt", std::ios::app);
 
-    std::ofstream Q_flux_wall_output(case_chosen + "/outer_wall_heat_flux.txt", std::ios::app);
-    std::ofstream Q_flux_wick_output(case_chosen + "/wall_wick_heat_flux.txt", std::ios::app);
-    std::ofstream Q_flux_vapor_output(case_chosen + "/wick_vapor_heat_flux.txt", std::ios::app);
-    std::ofstream Q_mass_vapor_output(case_chosen + "/outer_wall_heat_flux.txt", std::ios::app);
-    std::ofstream Q_mass_wick_output(case_chosen + "/wall_wick_heat_flux.txt", std::ios::app);
-    
+    std::ofstream Q_flux_wall_output(case_chosen + "/wall_heat_source_flux.txt", std::ios::app);
+    std::ofstream Q_flux_wick_output(case_chosen + "/wick_heat_source_flux.txt", std::ios::app);
+    std::ofstream Q_flux_vapor_output(case_chosen + "/vapor_heat_source_flux.txt", std::ios::app);
+    std::ofstream Q_mass_vapor_output(case_chosen + "/vapor_heat_source_mass.txt", std::ios::app);
+    std::ofstream Q_mass_wick_output(case_chosen + "/wick_heat_source_mass.txt", std::ios::app);
+
     std::ofstream saturation_pressure_output(case_chosen + "/saturation_pressure.txt", std::ios::app);
     std::ofstream sonic_velocity_output(case_chosen + "/sonic_velocity.txt", std::ios::app);
 
@@ -595,29 +683,6 @@ int main() {
 
     saturation_pressure_output << std::setprecision(global_precision);
     sonic_velocity_output << std::setprecision(global_precision);
-
-    for (int i = 0; i < N; i++) p_storage_x[i + 1] = p_x[i];
-    p_storage_x[0] = p_storage_x[1];
-    p_storage_x[N + 1] = p_storage_x[N];
-
-    for (int i = 0; i < N; i++) p_storage_v[i + 1] = p_v[i];
-    p_storage_v[0] = p_storage_v[1];
-    p_storage_v[N + 1] = p_storage_v[N];
-
-    // Old values
-    std::vector<double> T_o_w_old = T_o_w;
-    std::vector<double> T_w_bulk_old = T_w_bulk;
-    std::vector<double> T_w_x_old = T_w_x;
-    std::vector<double> T_x_bulk_old = T_x_bulk;
-    std::vector<double> T_x_v_old = T_x_v;
-    std::vector<double> T_v_bulk_old = T_v_bulk;
-
-    std::vector<double> u_x_old = u_x;
-    std::vector<double> p_x_old = p_x;
-
-    std::vector<double> u_v_old = u_v;
-    std::vector<double> p_v_old = p_v;
-    std::vector<double> rho_v_old = rho_v;
 
     // Iter values (only for Picard loops)
     std::vector<double> T_o_w_iter(N, 0.0);
@@ -667,7 +732,7 @@ int main() {
 	/// as well as to estimate the dt limit due to compressibility
     std::vector<double> 
         aVU(N, 0.0),                                                /// Lower tridiagonal coefficient for vapor velocity
-        bVU(N, 2 * (4.0 / 3.0 * vapor_sodium::mu(T_init) / dz) 
+        bVU(N, 2 * (4.0 / 3.0 * vapor_sodium::mu(T_v_bulk[0]) / dz)
             + dz / dt_user * rho_v[0]),                                  /// Central tridiagonal coefficient for vapor velocity
         cVU(N, 0.0),                                                /// Upper tridiagonal coefficient for vapor velocity
         dVU(N, 0.0);                                                /// Known vector for vapor velocity
@@ -699,28 +764,182 @@ int main() {
 
         time_total += dt;
 
-		// Picard: iter values = old values
-        for (int i = 0; i < N; ++i) {
-
-             T_o_w_iter = T_o_w_old;
-             T_w_bulk_iter = T_w_bulk_old;
-             T_w_x_iter = T_w_x_old;
-             T_x_bulk_iter = T_x_bulk_old;
-             T_x_v_iter = T_x_v_old;
-             T_v_bulk_iter = T_v_bulk_old;
-        }
+        T_o_w_iter = T_o_w_old;
+        T_w_bulk_iter = T_w_bulk_old;
+        T_w_x_iter = T_w_x_old;
+        T_x_bulk_iter = T_x_bulk_old;
+        T_x_v_iter = T_x_v_old;
+        T_v_bulk_iter = T_v_bulk_old;
 
 		// Store old values for time derivative
-        for (int i = 0; i < N; ++i) {
-
-            p_v_old = p_v;
-            p_x_old = p_x;
-            u_v_old = u_v;
-            u_x_old = u_x;
-            rho_v_old = rho_v;
-        }
+        p_v_old = p_v;
+        p_x_old = p_x;
+        u_v_old = u_v;
+        u_x_old = u_x;
+        rho_v_old = rho_v;
 
         for (int pic = 0; pic < maxPicard; pic++) {
+
+            // =======================================================================
+            //
+            //                   [3. SOLVE INTERFACES AND FLUXES]
+            //
+            // =======================================================================
+
+            #pragma region parabolic_profiles 
+
+            /**
+             * Temperature distribution coefficients (six coefficients per node, two parabolas)
+             * First three coefficients are a_w, b_w, c_w
+             * Last three coefficients are a_x, b_x, c_x
+             */
+            auto ABC = std::make_unique<std::array<double, 6>[] >(N);
+
+            for (int i = 0; i < N; ++i) {
+
+                /// Mass flux from the wick to the vapor [kg/(m2 s)]
+                phi_x_v[i] = (sigma_e * vapor_sodium::P_sat(T_x_v_iter[i]) / std::sqrt(T_x_v_iter[i]) -
+                    sigma_c * Omega * p_v[i] / std::sqrt(T_v_bulk_iter[i])) /
+                    (std::sqrt(2 * M_PI * Rv));
+
+                Gamma_xv_vapor[i] = phi_x_v[i] * 2.0 * eps_s / r_v;
+                Gamma_xv_wick[i] = phi_x_v[i] * (2.0 * r_v * eps_s) / (r_i * r_i - r_v * r_v);
+
+                /**
+                 * Variable b [-], used to calculate omega.
+                 * Ratio of the overrall speed to the most probable velocity of the vapor.
+                 */
+                const double b = std::abs(-phi_x_v[i] / (p_v[i] * std::sqrt(2.0 / (Rv * T_v_bulk_iter[i]))));
+
+                /**
+                  * Linearization of the omega [-] function to correct the net evaporation/condensation mass flux
+                  */
+                if (b < 0.1192) Omega = 1.0 + b * std::sqrt(M_PI);
+                else if (b <= 0.9962) Omega = 0.8959 + 2.6457 * b;
+                else Omega = 2.0 * b * std::sqrt(M_PI);
+
+                const double k_bulk_w = steel::k(T_w_bulk_iter[i]);                             /// Wall bulk thermal conductivity [W/(m K)]
+                const double k_bulk_x = liquid_sodium::k(T_x_bulk_iter[i]);                     /// Liquid bulk thermal conductivity [W/(m K)]
+                const double cp_v = vapor_sodium::cp(T_v_bulk_iter[i]);                         /// Vapor bulk specific heat [J/(kg K)]
+                const double k_int_w = steel::k(T_w_x_iter[i]);                                 /// Wall interfacial thermal conductivity [W/(m K)]
+                const double k_int_x = liquid_sodium::k(T_w_x_iter[i]);                         /// Wick interfacial thermal conductivity [W/(m K)]     
+                const double k_x_v = liquid_sodium::k(T_x_v[i]);                                /// Wick-vapor interface thermal conductivity [W/(m K)]  
+                const double k_v_x = vapor_sodium::k(T_x_v[i], p_v[i]);                    /// Vapor-wick interface thermal conductivity [W/(m K)]
+                const double k_v_cond = vapor_sodium::k(T_v_bulk_iter[i], p_v[i]);         /// Vapor thermal conductivity [W/(m K)]
+                const double k_v_eff = k_v_cond + mu_t[i] * cp_v / Pr_t;                        /// Effective vapor thermal conductivity [W/(m K)]
+                const double mu_v = vapor_sodium::mu(T_v_bulk_iter[i]);                         /// Vapor dynamic viscosity [Pa*s]
+                const double Dh_v = 2.0 * r_v;                                              /// Hydraulic diameter of the vapor core [m]
+                const double Re_v = rho_v[i] * std::fabs(u_v[i]) * Dh_v / mu_v;       /// Reynolds number [-]
+                const double Pr_v = cp_v * mu_v / k_v_cond;                                     /// Prandtl number [-]
+                const double H_xm = vapor_sodium::h_conv(Re_v, Pr_v, k_v_cond, Dh_v);           /// Convective heat transfer coefficient at the vapor-wick interface [W/m^2/K]
+                saturation_pressure[i] = vapor_sodium::P_sat(T_x_v_iter[i]);                         /// Saturation pressure [Pa]        
+                const double dPsat_dT = saturation_pressure[i] * std::log(10.0) * (7740.0 / (T_x_v_iter[i] * T_x_v_iter[i]));   /// Derivative of the saturation pressure wrt T [Pa/K]   
+
+                const double fac = (2.0 * r_v * eps_s * beta) / (r_i * r_i);    /// Useful factor in the coefficients calculation [s / m^2]
+
+                double h_xv_v;          /// Specific enthalpy [J/kg] of vapor upon phase change between wick and vapor
+                double h_vx_x;          /// Specific enthalpy [J/kg] of wick upon phase change between vapor and wick
+
+                if (phi_x_v[i] > 0.0) {
+
+                    // Evaporation case
+                    h_xv_v = vapor_sodium::h(T_x_v_iter[i]);
+                    h_vx_x = liquid_sodium::h(T_x_v_iter[i]);
+
+                }
+                else {
+
+                    // Condensation case
+                    h_xv_v = vapor_sodium::h(T_v_bulk_iter[i]);
+                    h_vx_x = liquid_sodium::h(T_x_v_iter[i])
+                        + (vapor_sodium::h(T_v_bulk_iter[i]) - vapor_sodium::h(T_x_v_iter[i]));
+                }
+
+                /// Coefficients for the parabolic temperature profiles in wall and wick (check equations)
+                const double E1w = 2.0 / 3.0 * (r_o + r_i - 1 / (1 / r_o + 1 / r_i));
+                const double E2w = 0.5 * (r_o * r_o + r_i * r_i);
+                const double E1x = 2.0 / 3.0 * (r_i + r_v - 1 / (1 / r_i + 1 / r_v));
+                const double E2x = 0.5 * (r_i * r_i + r_v * r_v);
+
+                const double E3 = H_xm;
+                const double E4 = -k_bulk_x + H_xm * r_v;
+                const double E5 = -2.0 * r_v * k_bulk_x + H_xm * r_v * r_v;
+                const double E6 = H_xm * T_v_bulk_iter[i] - (h_xv_v - h_vx_x) * phi_x_v[i];
+
+                const double alpha = 1.0 / (2 * r_o * (E1w - r_i) + r_i * r_i - E2w);
+                const double delta = T_x_bulk_iter[i] - T_w_bulk_iter[i] + q_o_w[i] / k_bulk_w * (E1w - r_i) -
+                    (E1x - r_i) * (E6 - E3 * T_x_bulk_iter[i]) / (E4 - E1x * E3);
+                const double gamma = r_i * r_i + ((E5 - E2x * E3) * (E1x - r_i)) / (E4 - E1x * E3) - E2x;
+
+                ABC[i][5] = (-q_o_w[i] * k_int_w / k_bulk_w +
+                    2 * k_int_w * (r_o - r_i) * alpha * delta +
+                    k_int_x * (E6 - E3 * T_x_bulk_iter[i]) / (E4 - E1x * E3)) /
+                    (2 * (r_i - r_o) * k_int_w * alpha * gamma +
+                        (E5 - E2x * E3) / (E4 - E1x * E3) * k_int_x -
+                        2 * r_i * k_int_x);
+                ABC[i][2] = alpha * (delta + gamma * ABC[i][5]);
+                ABC[i][1] = q_o_w[i] / k_bulk_w - 2 * r_o * ABC[i][2];
+                ABC[i][0] = T_w_bulk_iter[i] - E1w * q_o_w[i] / k_bulk_w + (2 * r_o * E1w - E2w) * ABC[i][2];
+                ABC[i][4] = (E6 - E3 * T_x_bulk_iter[i] - (E5 - E2x * E3) * ABC[i][5]) / (E4 - E1x * E3);
+                ABC[i][3] = T_x_bulk_iter[i] - E1x * ABC[i][4] - E2x * ABC[i][5];
+
+                // Update temperatures at the interfaces
+                T_o_w[i] = ABC[i][0] + ABC[i][1] * r_o + ABC[i][2] * r_o * r_o; /// Temperature at the outer wall
+                T_w_x[i] = ABC[i][0] + ABC[i][1] * r_i + ABC[i][2] * r_i * r_i; /// Temperature at the wall wick interface
+                T_x_v[i] = ABC[i][3] + ABC[i][4] * r_v + ABC[i][5] * r_v * r_v; /// Temperature at the wick vapor interface
+
+                std::vector<double> q_raw(N, 0.0);
+
+                //for (int i = 0; i < N; ++i) {
+
+                //    if (i <= evaporator_nodes) q_raw[i] = q_pp_evaporator;
+                //    else if (i >= N - condenser_nodes) {
+
+                //        double conv = h_conv * (T_o_w_iter[i] - T_env);
+                //        double irr = emissivity * sigma *
+                //            (std::pow(T_o_w_iter[i], 4) - std::pow(T_env, 4));
+
+                //        q_raw[i] = -(conv + irr);
+                //    }
+                //}
+
+                //// Light smoothing (3-point binomial filter)
+                //std::vector<double> q_smooth(N);
+
+                //for (int i = 0; i < N; ++i) {
+
+                //    double qm = q_raw[i];
+                //    double ql = (i > 0 ? q_raw[i - 1] : q_raw[i]);
+                //    double qr = (i < N - 1 ? q_raw[i + 1] : q_raw[i]);
+
+                //    // filtro di smoothing: [0.25, 0.5, 0.25]
+                //    q_smooth[i] = 0.25 * ql + 0.5 * qm + 0.25 * qr;
+                //}
+
+                //q_o_w = q_smooth;
+
+                for (int i = 0; i < N; ++i) {
+
+                    const double q_max = 2.0 * q_pp_evaporator;
+                    const double w = 0.5 - double(i * dz) / double(L);
+                    q_raw[i] = q_max * w;
+                }
+
+                q_o_w = q_raw;
+
+                q_w_x_wall[i] = k_int_w * (ABC[i][1] + 2.0 * ABC[i][2] * r_i);  /// Heat flux across wall-wick interface (positive if to wick)
+                q_w_x_wick[i] = k_int_x * (ABC[i][1] + 2.0 * ABC[i][2] * r_i);  /// Heat flux across wall-wick interface (positive if to wick)
+                q_x_v_wick[i] = k_x_v * (ABC[i][4] + 2.0 * ABC[i][5] * r_v);    /// Heat flux across wick-vapor interface (positive if to vapor)
+                q_x_v_vapor[i] = k_v_x * (ABC[i][4] + 2.0 * ABC[i][5] * r_v);   /// Heat flux across wick-vapor interface (positive if to vapor)
+
+                Q_mass_vapor[i] = +Gamma_xv_vapor[i] * h_xv_v; /// Volumetric heat source [W/m3] due to evaporation/condensation (to be summed to the vapor)
+                Q_mass_wick[i] = -Gamma_xv_wick[i] * h_vx_x;   /// Volumetric heat source [W/m3] due to evaporation/condensation (to be summed to the wick)
+            }
+
+            /// Coupling hypotheses: temperature is transferred to the pressure of the sodium vapor
+            p_outlet_v = vapor_sodium::P_sat(T_x_v_iter[N - 1]);
+
+            #pragma endregion
 
             // =======================================================================
             //
@@ -822,8 +1041,8 @@ int main() {
             /// The coefficient bXU is needed in momentum predictor loop and pressure correction to estimate the velocities at the faces using the Rhie and Chow correction
             std::vector<double>
                 aXU(N, 0.0),                                                /// Lower tridiagonal coefficient for wick velocity
-                bXU(N, liquid_sodium::rho(T_init) * dz / dt
-                    + 2 * liquid_sodium::mu(1000) / dz),                    /// Central tridiagonal coefficient for wick velocity
+                bXU(N, liquid_sodium::rho(T_x_bulk[0]) * dz / dt
+                    + 2 * liquid_sodium::mu(T_x_bulk[0]) / dz),                    /// Central tridiagonal coefficient for wick velocity
                 cXU(N, 0.0),                                                /// Upper tridiagonal coefficient for wick velocity
                 dXU(N, 0.0);                                                /// Known vector coefficient for wick velocity
 
@@ -1203,166 +1422,6 @@ int main() {
 			for (int i = 0; i < N; ++i) rho_x[i] = liquid_sodium::rho(T_x_bulk[i]);
 
             #pragma endregion
-
-            #pragma endregion
-
-            // =======================================================================
-            //
-            //                   [3. SOLVE INTERFACES AND FLUXES]
-            //
-            // =======================================================================
-
-            #pragma region parabolic_profiles 
-
-            /**
-             * Temperature distribution coefficients (six coefficients per node, two parabolas)
-             * First three coefficients are a_w, b_w, c_w
-             * Last three coefficients are a_x, b_x, c_x
-             */
-            auto ABC = std::make_unique<std::array<double, 6>[] >(N);
-
-            for (int i = 0; i < N; ++i) {
-
-                /// Mass flux from the wick to the vapor [kg/(m2 s)]
-                phi_x_v[i] = (sigma_e * vapor_sodium::P_sat(T_x_v_iter[i]) / std::sqrt(T_x_v_iter[i]) -
-                                sigma_c * Omega * p_v[i] / std::sqrt(T_v_bulk_iter[i])) /
-                                (std::sqrt(2 * M_PI * Rv));
-
-                Gamma_xv_vapor[i] = phi_x_v[i] * 2.0 * eps_s / r_v;
-                Gamma_xv_wick[i] = phi_x_v[i] * (2.0 * r_v * eps_s) / (r_i * r_i - r_v * r_v);
-
-                /**
-                 * Variable b [-], used to calculate omega. 
-                 * Ratio of the overrall speed to the most probable velocity of the vapor.
-                 */
-                const double b = std::abs(-phi_x_v[i] / (p_v[i] * std::sqrt(2.0 / (Rv * T_v_bulk_iter[i]))));
-
-                /**
-                  * Linearization of the omega [-] function to correct the net evaporation/condensation mass flux
-                  */
-                if (b < 0.1192) Omega = 1.0 + b * std::sqrt(M_PI);
-                else if (b <= 0.9962) Omega = 0.8959 + 2.6457 * b;
-                else Omega = 2.0 * b * std::sqrt(M_PI);
-
-                const double k_bulk_w = steel::k(T_w_bulk_iter[i]);                             /// Wall bulk thermal conductivity [W/(m K)]
-                const double k_bulk_x = liquid_sodium::k(T_x_bulk_iter[i]);                     /// Liquid bulk thermal conductivity [W/(m K)]
-                const double cp_v = vapor_sodium::cp(T_v_bulk_iter[i]);                         /// Vapor bulk specific heat [J/(kg K)]
-				const double k_int_w = steel::k(T_w_x_iter[i]);                                 /// Wall interfacial thermal conductivity [W/(m K)]
-				const double k_int_x = liquid_sodium::k(T_w_x_iter[i]);                         /// Wick interfacial thermal conductivity [W/(m K)]     
-				const double k_x_v = liquid_sodium::k(T_x_v[i]);                                /// Wick-vapor interface thermal conductivity [W/(m K)]  
-				const double k_v_x = vapor_sodium::k(T_x_v[i], p_v[i]);                    /// Vapor-wick interface thermal conductivity [W/(m K)]
-                const double k_v_cond = vapor_sodium::k(T_v_bulk_iter[i], p_v[i]);         /// Vapor thermal conductivity [W/(m K)]
-                const double k_v_eff = k_v_cond + mu_t[i] * cp_v / Pr_t;                        /// Effective vapor thermal conductivity [W/(m K)]
-                const double mu_v = vapor_sodium::mu(T_v_bulk_iter[i]);                         /// Vapor dynamic viscosity [Pa*s]
-                const double Dh_v = 2.0 * r_v;                                              /// Hydraulic diameter of the vapor core [m]
-                const double Re_v = rho_v[i] * std::fabs(u_v[i]) * Dh_v / mu_v;       /// Reynolds number [-]
-                const double Pr_v = cp_v * mu_v / k_v_cond;                                     /// Prandtl number [-]
-                const double H_xm = vapor_sodium::h_conv(Re_v, Pr_v, k_v_cond, Dh_v);           /// Convective heat transfer coefficient at the vapor-wick interface [W/m^2/K]
-                saturation_pressure[i] = vapor_sodium::P_sat(T_x_v_iter[i]);                         /// Saturation pressure [Pa]        
-                const double dPsat_dT = saturation_pressure[i] * std::log(10.0) * (7740.0 / (T_x_v_iter[i] * T_x_v_iter[i]));   /// Derivative of the saturation pressure wrt T [Pa/K]   
-
-                const double fac = (2.0 * r_v * eps_s * beta) / (r_i * r_i);    /// Useful factor in the coefficients calculation [s / m^2]
-
-                double h_xv_v;          /// Specific enthalpy [J/kg] of vapor upon phase change between wick and vapor
-                double h_vx_x;          /// Specific enthalpy [J/kg] of wick upon phase change between vapor and wick
-
-                if (phi_x_v[i] > 0.0) {
-
-                    // Evaporation case
-                    h_xv_v = vapor_sodium::h(T_x_v_iter[i]);
-                    h_vx_x = liquid_sodium::h(T_x_v_iter[i]);
-
-                } else {
-
-                    // Condensation case
-                    h_xv_v = vapor_sodium::h(T_v_bulk_iter[i]);
-                    h_vx_x = liquid_sodium::h(T_x_v_iter[i])
-                        + (vapor_sodium::h(T_v_bulk_iter[i]) - vapor_sodium::h(T_x_v_iter[i]));
-                }
-
-                /// Coefficients for the parabolic temperature profiles in wall and wick (check equations)
-                const double E1w = 2.0 / 3.0 * (r_o + r_i - 1 / (1 / r_o + 1 / r_i));
-                const double E2w = 0.5 * (r_o * r_o + r_i * r_i);
-                const double E1x = 2.0 / 3.0 * (r_i + r_v - 1 / (1 / r_i + 1 / r_v));
-                const double E2x = 0.5 * (r_i * r_i + r_v * r_v);
-
-                const double E3 = H_xm;
-                const double E4 = -k_bulk_x + H_xm * r_v;
-                const double E5 = -2.0 * r_v * k_bulk_x + H_xm * r_v * r_v;
-                const double E6 = H_xm * T_v_bulk_iter[i] - (h_xv_v - h_vx_x) * phi_x_v[i];
-
-                const double alpha = 1.0 / (2 * r_o * (E1w - r_i) + r_i * r_i - E2w);
-                const double delta = T_x_bulk_iter[i] - T_w_bulk_iter[i] + q_o_w[i] / k_bulk_w * (E1w - r_i) - 
-                    (E1x - r_i) * (E6 - E3 * T_x_bulk_iter[i]) / (E4 - E1x * E3);
-                const double gamma = r_i * r_i + ((E5 - E2x * E3) * (E1x - r_i)) / (E4 - E1x * E3) - E2x;
-
-                ABC[i][5] = (-q_o_w[i] * k_int_w / k_bulk_w +
-                    2 * k_int_w * (r_o - r_i) * alpha * delta +
-                    k_int_x * (E6 - E3 * T_x_bulk_iter[i]) / (E4 - E1x * E3)) /
-                    (2 * (r_i - r_o) * k_int_w * alpha * gamma +
-                        (E5 - E2x * E3) / (E4 - E1x * E3) * k_int_x -
-                        2 * r_i * k_int_x);
-                ABC[i][2] = alpha * (delta + gamma * ABC[i][5]);
-                ABC[i][1] = q_o_w[i] / k_bulk_w - 2 * r_o * ABC[i][2];
-                ABC[i][0] = T_w_bulk_iter[i] - E1w * q_o_w[i] / k_bulk_w + (2 * r_o * E1w - E2w) * ABC[i][2];
-                ABC[i][4] = (E6 - E3 * T_x_bulk_iter[i] - (E5 - E2x * E3) * ABC[i][5]) / (E4 - E1x * E3);
-                ABC[i][3] = T_x_bulk_iter[i] - E1x * ABC[i][4] - E2x * ABC[i][5];
-
-                // Update temperatures at the interfaces
-                T_o_w[i] = ABC[i][0] + ABC[i][1] * r_o + ABC[i][2] * r_o * r_o; /// Temperature at the outer wall
-                T_w_x[i] = ABC[i][0] + ABC[i][1] * r_i + ABC[i][2] * r_i * r_i; /// Temperature at the wall wick interface
-                T_x_v[i] = ABC[i][3] + ABC[i][4] * r_v + ABC[i][5] * r_v * r_v; /// Temperature at the wick vapor interface
-
-                std::vector<double> q_raw(N, 0.0);
-
-                //for (int i = 0; i < N; ++i) {
-
-                //    if (i <= evaporator_nodes) q_raw[i] = q_pp_evaporator;
-                //    else if (i >= N - condenser_nodes) {
-
-                //        double conv = h_conv * (T_o_w_iter[i] - T_env);
-                //        double irr = emissivity * sigma *
-                //            (std::pow(T_o_w_iter[i], 4) - std::pow(T_env, 4));
-
-                //        q_raw[i] = -(conv + irr);
-                //    }
-                //}
-
-                //// Light smoothing (3-point binomial filter)
-                //std::vector<double> q_smooth(N);
-
-                //for (int i = 0; i < N; ++i) {
-
-                //    double qm = q_raw[i];
-                //    double ql = (i > 0 ? q_raw[i - 1] : q_raw[i]);
-                //    double qr = (i < N - 1 ? q_raw[i + 1] : q_raw[i]);
-
-                //    // filtro di smoothing: [0.25, 0.5, 0.25]
-                //    q_smooth[i] = 0.25 * ql + 0.5 * qm + 0.25 * qr;
-                //}
-
-                //q_o_w = q_smooth;
-
-                for (int i = 0; i < N; ++i) {
-
-                    const double q_max = 2.0 * q_pp_evaporator;
-                    const double w = 0.5 - double(i * dz) / double(L);
-                    q_raw[i] = q_max * w;
-                }
-
-                q_o_w = q_raw;
-                                                                                       
-                q_w_x_wall[i] = k_int_w * (ABC[i][1] + 2.0 * ABC[i][2] * r_i);  /// Heat flux across wall-wick interface (positive if to wick)
-                q_w_x_wick[i] = k_int_x * (ABC[i][1] + 2.0 * ABC[i][2] * r_i);  /// Heat flux across wall-wick interface (positive if to wick)
-                q_x_v_wick[i] = k_x_v * (ABC[i][4] + 2.0 * ABC[i][5] * r_v);    /// Heat flux across wick-vapor interface (positive if to vapor)
-                q_x_v_vapor[i] = k_v_x * (ABC[i][4] + 2.0 * ABC[i][5] * r_v);   /// Heat flux across wick-vapor interface (positive if to vapor)
-
-                Q_mass_vapor[i] = + Gamma_xv_vapor[i] * h_xv_v; /// Volumetric heat source [W/m3] due to evaporation/condensation (to be summed to the vapor)
-                Q_mass_wick[i] = - Gamma_xv_wick[i] * h_vx_x;   /// Volumetric heat source [W/m3] due to evaporation/condensation (to be summed to the wick)
-            }
-
-            /// Coupling hypotheses: temperature is transferred to the pressure of the sodium vapor
-            p_outlet_v = vapor_sodium::P_sat(T_x_v_iter[N - 1]);
 
             #pragma endregion
 
@@ -2010,27 +2069,23 @@ int main() {
             if (L1 < picTolerance)
                 break;   // Picard converged
 
-            for (int i = 0; i < N; ++i) {
 
-                T_o_w_iter = T_o_w;
-                T_w_bulk_iter = T_w_bulk;
-                T_w_x_iter = T_w_x;
-                T_x_bulk_iter = T_x_bulk;
-                T_x_v_iter = T_x_v;
-                T_v_bulk_iter = T_v_bulk;
-            }
+            T_o_w_iter = T_o_w;
+            T_w_bulk_iter = T_w_bulk;
+            T_w_x_iter = T_w_x;
+            T_x_bulk_iter = T_x_bulk;
+            T_x_v_iter = T_x_v;
+            T_v_bulk_iter = T_v_bulk;
+            
         }
 
         // Update solution
-        for (int i = 0; i < N; ++i) {
-
-            T_o_w_old = T_o_w;
-            T_w_bulk_old = T_w_bulk;
-            T_w_x_old = T_w_x;
-            T_x_bulk_old = T_x_bulk;
-            T_x_v_old = T_x_v;
-            T_v_bulk_old = T_v_bulk;
-        }
+        T_o_w_old = T_o_w;
+        T_w_bulk_old = T_w_bulk;
+        T_w_x_old = T_w_x;
+        T_x_bulk_old = T_x_bulk;
+        T_x_v_old = T_x_v;
+        T_v_bulk_old = T_v_bulk;
 
         // =======================================================================
         //

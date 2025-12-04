@@ -15,7 +15,7 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="coupling_tr.cpp">
+    <ClCompile Include="HPCM.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

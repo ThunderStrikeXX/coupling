@@ -36,24 +36,38 @@ time_file = os.path.join(case, "time.txt")
 
 targets = [
     "vapor_velocity.txt",
-    "vapor_bulk_temperature.txt",
     "vapor_pressure.txt",
-    "wick_velocity.txt",
-    "wick_bulk_temperature.txt",
-    "wick_pressure.txt",
-    "wall_bulk_temperature.txt",
-    "outer_wall_temperature.txt",
-    "wall_wick_interface_temperature.txt",
-    "wick_vapor_interface_temperature.txt",
-    "outer_wall_heat_flux.txt",
-    "wall_wick_heat_flux.txt",
-    "wick_vapor_heat_flux.txt",
-    "wick_vapor_mass_source.txt",
-    "rho_liquid.txt",
+    "vapor_bulk_temperature.txt",
     "rho_vapor.txt",
+
+    "wick_velocity.txt",
+    "wick_pressure.txt",
+    "wick_bulk_temperature.txt",
+    "rho_liquid.txt",
+
+    "wick_vapor_interface_temperature.txt",
+    "wall_wick_interface_temperature.txt",
+    "outer_wall_temperature.txt",
+    "wall_bulk_temperature.txt",
+
+    "wick_vapor_mass_source.txt",
+
+    "outer_wall_heat_flux.txt",
+    "wall_wx_heat_flux.txt",
+    "wick_wx_heat_flux.txt",
+    "wick_xv_heat_flux.txt",
+    "vapor_xv_heat_flux.txt",
+
+    "wall_heat_source_flux.txt",
+    "wick_heat_source_flux.txt",
+    "vapor_heat_source_flux.txt",
+    "vapor_heat_source_mass.txt",
+    "wick_heat_source_mass.txt",
+
     "saturation_pressure.txt",
     "sonic_velocity.txt"
 ]
+
 
 
 y_files = [os.path.join(case, p) for p in targets]
@@ -69,20 +83,72 @@ time = safe_loadtxt(time_file)          # vettore tempo reale
 Y = [safe_loadtxt(f) for f in y_files]
 
 names = [
-    "Vapor velocity", "Vapor bulk temperature", "Vapor pressure",
-    "Wick velocity", "Wick bulk temperature", "Wick pressure",
-    "Wall bulk temperature", "Outer wall temperature",
-    "Wall-wick interface temperature", "Wick-vapor interface temperature",
-    "Outer wall heat flux", "Wall-wick heat flux", "Wick-vapor heat flux",
-    "Mass volumetric source", "Liquid density", "Vapor density",
-    "Saturation pressure", "Sonic speed"
+    "Vapor velocity",
+    "Vapor pressure",
+    "Vapor bulk temperature",
+    "Vapor density",
+
+    "Wick velocity",
+    "Wick pressure",
+    "Wick bulk temperature",
+    "Liquid density",
+
+    "Wick-vapor interface temperature",
+    "Wall-wick interface temperature",
+    "Outer wall temperature",
+    "Wall bulk temperature",
+
+    "Wick-vapor mass source",
+
+    "Outer wall heat flux",
+    "Wall-WX heat flux",
+    "Wick-WX heat flux",
+    "Wick-XV heat flux",
+    "Vapor-XV heat flux",
+
+    "Wall heat-source flux",
+    "Wick heat-source flux",
+    "Vapor heat-source flux",
+    "Vapor heat-source mass",
+    "Wick heat-source mass",
+
+    "Saturation pressure",
+    "Sonic speed"
 ]
 
+
 units = [
-    "[m/s]", "[K]", "[Pa]", "[m/s]", "[K]", "[Pa]",
-    "[K]", "[K]", "[K]", "[K]",
-    "[W/m²]", "[W/m²]", "[W/m²]", "[kg/s m³]", "[kg/m³]", "[kg/m³]",
-    "[Pa]", "[m/s]"
+    "[m/s]",
+    "[Pa]",
+    "[K]",
+    "[kg/m³]",
+
+    "[m/s]",
+    "[Pa]",
+    "[K]",
+    "[kg/m³]",
+
+    "[K]",
+    "[K]",
+    "[K]",
+    "[K]",
+
+    "[kg/(m³·s)]",
+
+    "[W/m²]",
+    "[W/m²]",
+    "[W/m²]",
+    "[W/m²]",
+    "[W/m²]",
+
+    "[W/m³]",
+    "[W/m³]",
+    "[W/m³]",
+    "[kg/(m³·s)]",
+    "[kg/(m³·s)]",
+
+    "[Pa]",
+    "[m/s]"
 ]
 
 
