@@ -879,13 +879,15 @@ int main() {
                 T_w_x[i] = ABC[i][0] + ABC[i][1] * r_i + ABC[i][2] * r_i * r_i; /// Temperature at the wall wick interface
                 T_x_v[i] = ABC[i][3] + ABC[i][4] * r_v + ABC[i][5] * r_v * r_v; /// Temperature at the wick vapor interface
 
+                std::vector<double> q_raw(N, 0.0);
+
                 // -----------------------------------------------------------
                 // Smooth axial heat-input/output distribution q_o_w[i] [W/m]
                 // -----------------------------------------------------------
 
                 // Smoothing parameters
-                const double delta_h = 0.005;                      // Smoothing evaporator [m]
-                const double delta_c = 0.010;                      // Smoothing condenser [m]
+                const double delta_h = 0.01;                      // Smoothing evaporator [m]
+                const double delta_c = 0.05;                      // Smoothing condenser [m]
 
                 // Axial coordinates of center cells
                 std::vector<double> z(N);
@@ -906,18 +908,18 @@ int main() {
                     // Left ramp
                     if (zi >= (evaporator_start - delta_h) && zi < evaporator_start) {
                         double x = (zi - (evaporator_start - delta_h)) / delta_h;    // [0,1]
-                        q_o_w[i] = 0.5 * q0 * (1.0 - std::cos(M_PI * x));
+                        q_raw[i] = 0.5 * q0 * (1.0 - std::cos(M_PI * x));
                     }
 
                     // Central plateau
                     else if (zi >= evaporator_start && zi <= evaporator_end) {
-                        q_o_w[i] = q0;
+                        q_raw[i] = q0;
                     }
 
                     // Right ramp
                     else if (zi > evaporator_end && zi <= (evaporator_end + delta_h)) {
                         double x = (zi - evaporator_end) / delta_h;                  // [0,1]
-                        q_o_w[i] = 0.5 * q0 * (1.0 + std::cos(M_PI * x));
+                        q_raw[i] = 0.5 * q0 * (1.0 + std::cos(M_PI * x));
                     }
                 }
 
@@ -931,22 +933,41 @@ int main() {
 
                     const double zi = z[i];
 
-					// Cooling with convection and radiation
+                    // Cooling with convection and radiation
                     double conv = h_conv * (T_o_w_iter[i] - T_env);
                     double irr = emissivity * sigma *
                         (std::pow(T_o_w_iter[i], 4) - std::pow(T_env, 4));
 
-					double qc = -(conv + irr);   // Extracted power [W/m], negative sign
+                    double qc = -(conv + irr);   // Extracted power [W/m]
 
-                    // Smoothing only in the final region
-                    if (zi >= (condenser_end_z - delta_c)) {
-                        double x = (zi - (condenser_end_z - delta_c)) / delta_c;   // [0,1]
-                        double w = 0.5 * (1.0 - std::cos(M_PI * x));               // 0→1
-                        qc *= w;
+                    // ----------------------------------------------------
+                    // Smoothing at the *beginning* of the condenser
+                    // ----------------------------------------------------
+                    if (zi >= condenser_start_z && zi < condenser_start_z + delta_c) {
+
+                        double x = (zi - condenser_start_z) / delta_c;  // 0→1
+                        double w = 0.5 * (1.0 - std::cos(M_PI * x));    // 0→1
+                        qc *= w;                                        // ramp up into condenser
                     }
 
-                    q_o_w[i] += qc;
+                    // ----------------------------------------------------
+                    // Middle and end of condenser → full qc
+                    // ----------------------------------------------------
+                    else if (zi >= condenser_start_z && zi <= condenser_end_z) {
+                        // qc remains unchanged
+                    }
+
+                    // ----------------------------------------------------
+                    // Outside condenser → no cooling
+                    // ----------------------------------------------------
+                    else {
+                        qc = 0.0;
+                    }
+
+                    q_raw[i] += qc;
                 }
+
+                q_o_w = q_raw;
 
                 q_w_x_wall[i] = k_int_w * (ABC[i][1] + 2.0 * ABC[i][2] * r_i);  /// Heat flux across wall-wick interface (positive if to wick)
                 q_w_x_wick[i] = k_int_x * (ABC[i][1] + 2.0 * ABC[i][2] * r_i);  /// Heat flux across wall-wick interface (positive if to wick)
