@@ -409,7 +409,7 @@ int main() {
     double time_total = 0.0;                /// Total simulation time [s]
 
 	// Picard iteration parameters
-	const double maxPicard = 1000;          /// Maximum number of Picard iterations per time step [-]
+	const double maxPicard = 200;           /// Maximum number of Picard iterations per time step [-]
 	const double picTolerance = 1e-4;   	/// Tolerance for Picard iterations [-]   
 
     // PISO Wick parameters
@@ -774,7 +774,7 @@ int main() {
              */
             auto ABC = std::make_unique<std::array<double, 6>[] >(N);
 
-            std::vector<double> q_ow;
+            std::vector<double> q_ow(N);
             
             for (int i = 0; i < N; ++i) {
 

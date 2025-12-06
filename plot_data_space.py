@@ -52,15 +52,13 @@ targets = [
 
     "wick_vapor_mass_source.txt",
 
-    "outer_wall_heat_flux.txt",
-    "wall_wx_heat_flux.txt",
-    "wick_wx_heat_flux.txt",
-    "wick_xv_heat_flux.txt",
-    "vapor_xv_heat_flux.txt",
+    # --- HEAT SOURCES (NUOVI) ---
+    "outer_wall_heat_source.txt",
+    "wall_wx_heat_source.txt",
+    "wick_wx_heat_source.txt",
+    "wick_xv_heat_source.txt",
+    "vapor_xv_heat_source.txt",
 
-    "wall_heat_source_flux.txt",
-    "wick_heat_source_flux.txt",
-    "vapor_heat_source_flux.txt",
     "vapor_heat_source_mass.txt",
     "wick_heat_source_mass.txt",
 
@@ -100,15 +98,12 @@ names = [
 
     "Wick-vapor mass source",
 
-    "Outer wall heat flux",
-    "Wall-WX heat flux",
-    "Wick-WX heat flux",
-    "Wick-XV heat flux",
-    "Vapor-XV heat flux",
+    "Outer wall heat-source",
+    "Wall-WX heat-source",
+    "Wick-WX heat-source",
+    "Wick-XV heat-source",
+    "Vapor-XV heat-source",
 
-    "Wall heat-source flux",
-    "Wick heat-source flux",
-    "Vapor heat-source flux",
     "Vapor heat-source mass",
     "Wick heat-source mass",
 
@@ -135,15 +130,12 @@ units = [
 
     "[kg/(m³·s)]",
 
-    "[W/m²]",
-    "[W/m²]",
-    "[W/m²]",
-    "[W/m²]",
-    "[W/m²]",
+    "[W/m³]",
+    "[W/m³]",
+    "[W/m³]",
+    "[W/m³]",
+    "[W/m³]",
 
-    "[W/m³]",
-    "[W/m³]",
-    "[W/m³]",
     "[kg/(m³·s)]",
     "[kg/(m³·s)]",
 
