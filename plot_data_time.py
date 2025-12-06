@@ -52,15 +52,13 @@ targets = [
 
     "wick_vapor_mass_source.txt",
 
-    "outer_wall_heat_flux.txt",
-    "wall_wx_heat_flux.txt",
-    "wick_wx_heat_flux.txt",
-    "wick_xv_heat_flux.txt",
-    "vapor_xv_heat_flux.txt",
+    # --- HEAT SOURCES (NUOVI) ---
+    "outer_wall_heat_source.txt",
+    "wall_wx_heat_source.txt",
+    "wick_wx_heat_source.txt",
+    "wick_xv_heat_source.txt",
+    "vapor_xv_heat_source.txt",
 
-    "wall_heat_source_flux.txt",
-    "wick_heat_source_flux.txt",
-    "vapor_heat_source_flux.txt",
     "vapor_heat_source_mass.txt",
     "wick_heat_source_mass.txt",
 
@@ -98,15 +96,12 @@ names = [
 
     "Wick-vapor mass source",
 
-    "Outer wall heat flux",
-    "Wall-WX heat flux",
-    "Wick-WX heat flux",
-    "Wick-XV heat flux",
-    "Vapor-XV heat flux",
+    "Outer wall heat-source",
+    "Wall-WX heat-source",
+    "Wick-WX heat-source",
+    "Wick-XV heat-source",
+    "Vapor-XV heat-source",
 
-    "Wall heat-source flux",
-    "Wick heat-source flux",
-    "Vapor heat-source flux",
     "Vapor heat-source mass",
     "Wick heat-source mass",
 
@@ -132,15 +127,12 @@ units = [
 
     "[kg/(m³·s)]",
 
-    "[W/m²]",
-    "[W/m²]",
-    "[W/m²]",
-    "[W/m²]",
-    "[W/m²]",
+    "[W/m³]",
+    "[W/m³]",
+    "[W/m³]",
+    "[W/m³]",
+    "[W/m³]",
 
-    "[W/m³]",
-    "[W/m³]",
-    "[W/m³]",
     "[kg/(m³·s)]",
     "[kg/(m³·s)]",
 
@@ -171,37 +163,42 @@ line2, = ax.plot([], [], lw=1, linestyle='--')
 ax.grid(True)
 ax.set_xlabel("Time [s]")
 
-# Slider
+# Slider posizione assiale
 ax_slider = plt.axes([0.13, 0.10, 0.42, 0.03])
 slider = Slider(ax_slider, "Axial pos [m]", x.min(), x.max(), valinit=x[0])
 
-# -------------------- Buttons --------------------
+# -------------------- Buttons (layout come versione buona) --------------------
 buttons = []
 n_vars = len(names)
-n_cols = 3
+n_cols = 3                # numero colonne
 button_width = 0.11
-button_height = 0.09
-col_gap = 0.005
+button_height = 0.07
+col_gap = 0.005           # pulsanti più vicini orizzontalmente
 
 panel_left = 0.62
-panel_right = 0.70
 panel_top = 0.95
 panel_bottom = 0.05
 
+# calcolo righe totali necessarie
 n_rows = int(np.ceil(n_vars / n_cols))
+
+# altezza effettiva per ogni riga
 row_height = (panel_top - panel_bottom) / (n_rows + 2.0)
 
 for i, name in enumerate(names):
     col = i % n_cols
     row = i // n_cols
+
     x_pos = panel_left + col * (button_width + col_gap)
+    # riga 0 in alto
     y_pos = panel_top - (row + 1) * row_height
+
     b_ax = plt.axes([x_pos, y_pos, button_width, button_height])
     btn = Button(b_ax, "\n".join(textwrap.wrap(name, 12)), hovercolor='0.975')
     btn.label.set_fontsize(9)
     buttons.append(btn)
 
-# Control buttons
+# -------------------- Control buttons --------------------
 ax_play = plt.axes([0.15, 0.02, 0.10, 0.05])
 btn_play = Button(ax_play, "Play", hovercolor='0.975')
 ax_pause = plt.axes([0.27, 0.02, 0.10, 0.05])
@@ -224,6 +221,8 @@ current_node = [0]
 # -------------------- Drawing --------------------
 def draw_node(i, update_slider=True):
     y = Y[current_idx]
+
+    # curva principale: y(t, x_i)
     line.set_data(time, y[:, i])
 
     # sovrapposizione sonic speed
@@ -240,6 +239,7 @@ def draw_node(i, update_slider=True):
         slider.disconnect(slider_cid)
         slider.set_val(index_to_pos(i))
         connect_slider()
+
     return line,
 
 def update_auto(i):
@@ -295,7 +295,7 @@ ani = FuncAnimation(
     fig,
     update_auto,
     frames=range(0, n_nodes, skip),
-    interval=10000 / (n_nodes/skip),
+    interval=10000 / (n_nodes / skip),
     blit=False,
     repeat=True
 )

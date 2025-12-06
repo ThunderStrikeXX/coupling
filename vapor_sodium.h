@@ -230,16 +230,25 @@ namespace vapor_sodium {
     */
     inline double Nu(double Re, double Pr) {
 
-        // If laminar, Nu is constant
-        if (Re < 1000) return 4.36;
+        if (Re <= 0.0 || Pr <= 0.0)
+            throw std::invalid_argument("Error: Re or Pr < 0");
 
-        if (Re <= 0.0 || Pr <= 0.0) throw std::invalid_argument("Error: Re or Pr < 0");
+        const double Nu_lam = 4.36;
 
+        // Puramente laminare
+        if (Re <= 1000.0)
+            return Nu_lam;
+
+        // Incremento turbolento (Gnielinski) per Re > 1000
         const double f = vapor_sodium::f(Re);
         const double fp8 = f / 8.0;
         const double num = fp8 * (Re - 1000.0) * Pr;
-        const double den = 1.0 + 12.7 * std::sqrt(fp8) * (std::cbrt(Pr * Pr) - 1.0); // Pr^(2/3)
-        return num / den;
+        const double den = 1.0 + 12.7 * std::sqrt(fp8) * (std::cbrt(Pr * Pr) - 1.0);
+
+        const double Nu_turb_inc = num / den;  // = 0 a Re = 1000
+
+        // Valore totale: laminare + incremento turbolento
+        return Nu_lam + Nu_turb_inc;
     }
 
     /**
